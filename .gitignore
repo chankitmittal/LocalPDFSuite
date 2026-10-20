@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Sidecar Engine & Python Builds
+sidecar-engine/build/
+sidecar-engine/dist/
+
+# Frontend Builds
+dist/
+dist-ssr/
+*.local
+
+# Tauri Rust Builds & Binaries
+src-tauri/target/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS Files & Logs
+.DS_Store
+Thumbs.db
+*.log
