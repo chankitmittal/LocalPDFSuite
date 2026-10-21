@@ -13,7 +13,10 @@ import io
 import os
 import re
 import base64
+import logging
 import tempfile
+
+logger = logging.getLogger("pdf_edit")
 from typing import Dict, Any, List, Optional
 from PIL import Image
 from reportlab.pdfgen import canvas
@@ -219,7 +222,7 @@ def apply_pdf_edits(
                             c.setFillAlpha(opacity)
                             c.drawImage(reader_img, x, y, width=w, height=h, mask="auto")
                     except Exception as err:
-                        print(f"Warning: Failed to render image edit on page {page_num}: {err}")
+                        logger.warning(f"Failed to render image edit on page {page_num}: {err}")
                     finally:
                         c.restoreState()
 
@@ -292,10 +295,16 @@ def apply_pdf_edits(
         if flatten:
             # Burn edits permanently into static page vector stream using PDFium
             doc = pdfium.PdfDocument(temp_merged_path)
-            for page in doc:
-                pdfium_c.FPDFPage_Flatten(page.raw, 0)
-            doc.save(output_path)
-            doc.close()
+            try:
+                for idx in range(len(doc)):
+                    page = doc.get_page(idx)
+                    try:
+                        pdfium_c.FPDFPage_Flatten(page.raw, 0)
+                    finally:
+                        page.close()
+                doc.save(output_path)
+            finally:
+                doc.close()
         else:
             with open(temp_merged_path, "rb") as src, open(output_path, "wb") as dst:
                 dst.write(src.read())

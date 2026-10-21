@@ -61,7 +61,7 @@ fn spawn_sidecar(port: u16) -> Option<Child> {
 }
 
 fn wait_for_health(port: u16, max_retries: u32) -> bool {
-    let url = f!("http://127.0.0.1:{port}/health");
+    let url = format!("http://127.0.0.1:{port}/health");
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(500))
         .build()

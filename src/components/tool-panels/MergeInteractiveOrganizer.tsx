@@ -18,6 +18,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { UploadedFile } from '../../types';
+import { formatSize } from '../../utils/formatters';
 import {
   GripVertical,
   ArrowLeft,
@@ -61,14 +62,6 @@ const SortableDocCard: React.FC<SortableDocCardProps> = ({
     transform: CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 40 : 1,
-  };
-
-  const formatSize = (bytes: number) => {
-    if (!bytes) return '';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
 
   return (

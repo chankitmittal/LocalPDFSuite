@@ -1,5 +1,5 @@
 import React from 'react';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import { LayoutGrid, Download, CheckCircle, AlertCircle, Save } from 'lucide-react';
 
@@ -9,12 +9,12 @@ export const OrganizePanel: React.FC = () => {
 
   const handleSaveOrganized = async () => {
     if (!selectedFile) {
-      alert('Please upload and select a PDF document first.');
+      showToast('Please upload and select a PDF document first.', 'warning');
       return;
     }
 
     if (pages.length === 0) {
-      alert('No pages available to organize.');
+      showToast('No pages available to organize.', 'warning');
       return;
     }
 

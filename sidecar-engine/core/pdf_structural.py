@@ -51,18 +51,20 @@ def merge_pdfs(file_paths: List[str], output_path: str) -> Dict[str, Any]:
         raise ValueError("At least one PDF file path must be provided for merging.")
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    dst = pikepdf.Pdf.new()
-    total_pages = 0
+    with pikepdf.Pdf.new() as dst:
+        total_pages = 0
 
-    for path in file_paths:
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Input file not found: {path}")
-        with pikepdf.open(path) as src:
-            dst.pages.extend(src.pages)
-            total_pages += len(src.pages)
+        for path in file_paths:
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Input file not found: {path}")
+            with pikepdf.open(path) as src:
+                dst.pages.extend(src.pages)
+                total_pages += len(src.pages)
 
-    dst.save(output_path)
-    dst.close()
+        if not dst.pages:
+            raise ValueError("Merged document must contain at least 1 page.")
+
+        dst.save(output_path)
 
     return {
         "status": "success",
@@ -99,10 +101,9 @@ def split_pdf(
         if mode == "extract_all":
             for idx, page in enumerate(src.pages):
                 out_path = os.path.join(output_dir, f"{base_name}_page_{idx + 1:04d}.pdf")
-                dst = pikepdf.Pdf.new()
-                dst.pages.append(page)
-                dst.save(out_path)
-                dst.close()
+                with pikepdf.Pdf.new() as dst:
+                    dst.pages.append(page)
+                    dst.save(out_path)
                 output_files.append(out_path)
 
         elif mode == "fixed":
@@ -114,11 +115,10 @@ def split_pdf(
                 out_path = os.path.join(
                     output_dir, f"{base_name}_part_{chunk_idx:03d}_pages_{start_idx + 1}-{end_idx}.pdf"
                 )
-                dst = pikepdf.Pdf.new()
-                for p in range(start_idx, end_idx):
-                    dst.pages.append(src.pages[p])
-                dst.save(out_path)
-                dst.close()
+                with pikepdf.Pdf.new() as dst:
+                    for p in range(start_idx, end_idx):
+                        dst.pages.append(src.pages[p])
+                    dst.save(out_path)
                 output_files.append(out_path)
                 chunk_idx += 1
 
@@ -134,11 +134,10 @@ def split_pdf(
                 out_path = os.path.join(
                     output_dir, f"{base_name}_range_{group_idx + 1}_{start_p}-{end_p}.pdf"
                 )
-                dst = pikepdf.Pdf.new()
-                for p_idx in page_indices:
-                    dst.pages.append(src.pages[p_idx])
-                dst.save(out_path)
-                dst.close()
+                with pikepdf.Pdf.new() as dst:
+                    for p_idx in page_indices:
+                        dst.pages.append(src.pages[p_idx])
+                    dst.save(out_path)
                 output_files.append(out_path)
         else:
             raise ValueError(f"Unknown split mode: {mode}")
@@ -189,67 +188,109 @@ def organize_pdf(
 
     with pikepdf.open(file_path) as src:
         total_orig_pages = len(src.pages)
-        dst = pikepdf.Pdf.new()
+        with pikepdf.Pdf.new() as dst:
+            for action in page_actions:
+                if action.get("deleted", False):
+                    continue
+                orig_idx = int(action["page_index"])
+                if not (0 <= orig_idx < total_orig_pages):
+                    continue
 
-        for action in page_actions:
-            if action.get("deleted", False):
-                continue
-            orig_idx = int(action["page_index"])
-            if not (0 <= orig_idx < total_orig_pages):
-                continue
+                page = src.pages[orig_idx]
+                rotation = int(action.get("rotation", 0))
+                if rotation:
+                    current_rot = int(page.get("/Rotate", 0))
+                    page.Rotate = (current_rot + rotation) % 360
 
-            page = src.pages[orig_idx]
-            rotation = int(action.get("rotation", 0))
-            if rotation:
-                current_rot = int(page.get("/Rotate", 0))
-                page.Rotate = (current_rot + rotation) % 360
+                dst.pages.append(page)
 
-            dst.pages.append(page)
+            if not dst.pages:
+                raise ValueError("Organized document must contain at least 1 page. All pages cannot be deleted.")
 
-        dst.save(output_path)
-        dst.close()
+            dst.save(output_path)
 
     return {
         "status": "success",
         "output_path": output_path,
-        "resulting_pages": len(page_actions),
+        "resulting_pages": len(dst.pages),
         "file_size": os.path.getsize(output_path),
     }
 
 
 def protect_pdf(
-    file_path: str,
-    output_path: str,
-    user_password: str,
+    file_path: Optional[str] = None,
+    output_path: Optional[str] = None,
+    user_password: Optional[str] = None,
     owner_password: Optional[str] = None,
+    input_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Encrypts PDF with AES-256 standard encryption (R=6).
+    Supports:
+    - User/Open Password only (password required to open/view document)
+    - Owner/Permissions Password only (opens freely, but editing/copying locked)
+    - Both passwords (open password for viewers, owner password for administrators)
     """
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-    if not user_password:
-        raise ValueError("User password must not be empty.")
+    in_path = file_path or input_path
+    if not in_path:
+        raise ValueError("No input PDF path provided for protection.")
+    if not os.path.exists(in_path):
+        raise FileNotFoundError(f"File not found: {in_path}")
+    if not output_path:
+        raise ValueError("No output path provided.")
 
-    if not owner_password:
-        owner_password = user_password
+    u_pwd = (user_password or "").strip()
+    o_pwd = (owner_password or "").strip()
+
+    if not u_pwd and not o_pwd:
+        raise ValueError("At least one password (Open Password or Permissions Password) must be provided.")
+
+    # In PDF standard:
+    # If user password is set but owner is not, owner password can equal user password.
+    # If owner password is set but user is not, user password is empty string (opens freely, but permissions locked).
+    if u_pwd and not o_pwd:
+        o_pwd = u_pwd
+    elif o_pwd and not u_pwd:
+        u_pwd = ""
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-    encryption = pikepdf.Encryption(
-        user=user_password,
-        owner=owner_password,
-        R=6,  # AES-256
-        aes=True,
-    )
+    # When an owner password is provided, restrict permissions
+    if o_pwd:
+        allow_perms = pikepdf.Permissions(
+            accessibility=True,
+            extract=False,
+            modify_annotation=False,
+            modify_assembly=False,
+            modify_form=False,
+            modify_other=False,
+            print_highres=True,
+            print_lowres=True,
+        )
+        encryption = pikepdf.Encryption(
+            user=u_pwd,
+            owner=o_pwd,
+            R=6,  # AES-256
+            aes=True,
+            allow=allow_perms,
+        )
+    else:
+        encryption = pikepdf.Encryption(
+            user=u_pwd,
+            owner=o_pwd,
+            R=6,  # AES-256
+            aes=True,
+        )
 
-    with pikepdf.open(file_path) as pdf:
+    with pikepdf.open(in_path) as pdf:
         pdf.save(output_path, encryption=encryption)
 
     return {
         "status": "success",
         "output_path": output_path,
         "encryption": "AES-256",
+        "has_open_password": bool(u_pwd),
+        "has_permissions_password": bool(o_pwd),
         "file_size": os.path.getsize(output_path),
     }
 

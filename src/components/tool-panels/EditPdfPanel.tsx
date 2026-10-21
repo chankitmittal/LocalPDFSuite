@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import { PdfEditItem } from '../../types';
 import {
@@ -30,9 +30,9 @@ import {
   Maximize2,
 } from 'lucide-react';
 
-// Configure PDF.js worker
+// Configure PDF.js worker locally for 100% offline air-gapped support
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 }
 
 type EditToolMode = 'select' | 'edit_text' | 'add_text' | 'whiteout' | 'highlight' | 'shape';
@@ -598,12 +598,12 @@ export const EditPdfPanel: React.FC = () => {
   // 9. Save Edited PDF
   const handleSaveEditedPdf = async () => {
     if (!activePdf) {
-      alert('Please upload and select a PDF document first.');
+      showToast('Please upload and select a PDF document first.', 'warning');
       return;
     }
 
     if (currentDocEdits.length === 0) {
-      alert('No edits have been added yet. Edit text, add new words, or erase areas before saving.');
+      showToast('No edits have been added yet. Edit text, add new words, or erase areas before saving.', 'warning');
       return;
     }
 

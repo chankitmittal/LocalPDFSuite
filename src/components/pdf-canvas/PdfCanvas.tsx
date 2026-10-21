@@ -21,9 +21,9 @@ import { useAppStore } from '../../store/useAppStore';
 import { PageItem } from '../../types';
 import { RotateCw, Trash2, Undo2, GripVertical } from 'lucide-react';
 
-// Configure PDF.js worker
+// Configure PDF.js worker locally for 100% offline air-gapped support
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 }
 
 interface SortablePageProps {

@@ -8,7 +8,7 @@ import os
 import shutil
 import tempfile
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -61,10 +61,81 @@ from core.pdf_forms import (
 from core.pdf_edit import (
     apply_pdf_edits,
 )
+from core.pdf_compare import (
+    analyze_document_comparison,
+    render_page_diff_view,
+    generate_diff_report_pdf,
+)
+from core.pdf_bates import (
+    apply_bates_stamping,
+)
+from core.pdf_forms_batch import (
+    batch_extract_forms_to_spreadsheet,
+)
+from core.pdf_sanitize import (
+    inspect_pdf_privacy,
+    sanitize_pdf_document,
+)
+from core.pdf_pipeline import (
+    WORKFLOW_PRESETS,
+    batch_execute_pipeline,
+)
+from core.pdf_form_builder import (
+    auto_detect_form_fields,
+    create_interactive_form_pdf,
+)
 
 # Shared temp workspace for file uploads/downloads
-WORKSPACE_DIR = os.path.join(tempfile.gettempdir(), "localpdf_workspace")
+_custom_workspace = os.environ.get("LOCALPDF_WORKSPACE_DIR")
+if _custom_workspace and _custom_workspace.strip():
+    WORKSPACE_DIR = os.path.realpath(_custom_workspace.strip())
+else:
+    WORKSPACE_DIR = os.path.realpath(os.path.join(tempfile.gettempdir(), "localpdf_workspace"))
 os.makedirs(WORKSPACE_DIR, exist_ok=True)
+
+
+def purge_expired_workspace_files(max_age_hours: float = 24.0) -> int:
+    """Removes temporary files older than max_age_hours from WORKSPACE_DIR."""
+    import time
+    purged_count = 0
+    now = time.time()
+    cutoff = now - (max_age_hours * 3600)
+    try:
+        for entry in os.scandir(WORKSPACE_DIR):
+            if entry.is_file():
+                try:
+                    if entry.stat().st_mtime < cutoff:
+                        os.remove(entry.path)
+                        purged_count += 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return purged_count
+
+
+# Clean up stale files older than 24 hours on sidecar startup
+purge_expired_workspace_files(24.0)
+
+
+def get_safe_workspace_path(filename: Optional[str], default_name: str = "output.pdf") -> str:
+    """
+    Safely resolves an output path strictly confined within WORKSPACE_DIR.
+    Strips directory separators, null bytes, and traversal elements to prevent arbitrary file overwrites.
+    """
+    import re
+    chosen = filename.strip() if (filename and filename.strip()) else default_name
+    safe_name = os.path.basename(chosen)
+    safe_name = re.sub(r'[\0\r\n\t]', '', safe_name)
+    if not safe_name or safe_name in ('.', '..'):
+        safe_name = default_name
+
+    dest_path = os.path.realpath(os.path.join(WORKSPACE_DIR, safe_name))
+    real_workspace = os.path.realpath(WORKSPACE_DIR)
+    if not (dest_path == real_workspace or dest_path.startswith(real_workspace + os.sep)):
+        return os.path.join(real_workspace, default_name)
+    return dest_path
+
 
 app = FastAPI(
     title="LocalPDF Sidecar Engine",
@@ -72,14 +143,41 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS enabled for Tauri webview and Vite dev server
+# CORS restricted to Tauri desktop webview and local Vite development ports
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+    "tauri://localhost",
+    "https://tauri.localhost",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+SESSION_TOKEN = os.environ.get("LOCALPDF_SESSION_TOKEN", "").strip()
+
+
+@app.middleware("http")
+async def verify_session_token_middleware(request: Request, call_next):
+    # Enforce loopback session token check if LOCALPDF_SESSION_TOKEN is configured in environment
+    if SESSION_TOKEN:
+        # Exempt health check and CORS OPTIONS preflights
+        if request.method != "OPTIONS" and request.url.path not in ("/health", "/docs", "/openapi.json"):
+            token_header = request.headers.get("X-LocalPDF-Token", "")
+            token_query = request.query_params.get("token", "")
+            if token_header != SESSION_TOKEN and token_query != SESSION_TOKEN:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Unauthorized: Missing or invalid LocalPDF session token"},
+                )
+    return await call_next(request)
 
 
 # ==================== Health & Diagnostics ====================
@@ -119,9 +217,16 @@ def system_status(
 @app.post("/api/files/upload")
 async def upload_file(file: UploadFile = File(...)):
     """Saves uploaded file into local temporary workspace and returns file path."""
-    dest_path = os.path.join(WORKSPACE_DIR, file.filename)
+    import re
+    raw_name = file.filename or "uploaded_file"
+    safe_name = os.path.basename(raw_name)
+    safe_name = re.sub(r'[\0\r\n\t]', '', safe_name)
+    if not safe_name or safe_name in ('.', '..'):
+        safe_name = "uploaded_file"
+
+    dest_path = os.path.join(WORKSPACE_DIR, safe_name)
     # Ensure unique filename if collision
-    base, ext = os.path.splitext(file.filename)
+    base, ext = os.path.splitext(safe_name)
     counter = 1
     while os.path.exists(dest_path):
         dest_path = os.path.join(WORKSPACE_DIR, f"{base}_{counter}{ext}")
@@ -138,14 +243,61 @@ async def upload_file(file: UploadFile = File(...)):
     }
 
 
+@app.get("/api/download")
 @app.get("/api/files/download")
-def download_file(path: str = Query(...)):
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="File not found")
+def download_file(
+    path: Optional[str] = Query(None),
+    file: Optional[str] = Query(None),
+    filename: Optional[str] = Query(None),
+):
+    chosen = None
+    for param in (path, file, filename):
+        if isinstance(param, str) and param.strip():
+            chosen = param.strip()
+            break
+
+    if not chosen:
+        raise HTTPException(status_code=400, detail="Missing required 'file' or 'path' query parameter.")
+
+    real_workspace = os.path.realpath(WORKSPACE_DIR)
+
+    # If absolute path was passed, verify boundary; otherwise resolve inside WORKSPACE_DIR
+    if os.path.isabs(chosen):
+        real_path = os.path.realpath(chosen)
+    else:
+        # Strip directory traversal characters
+        safe_name = os.path.basename(chosen.replace("\\", "/"))
+        real_path = os.path.realpath(os.path.join(real_workspace, safe_name))
+
+    # Security check: ensure target is strictly inside WORKSPACE_DIR
+    if not (real_path == real_workspace or real_path.startswith(real_workspace + os.sep)):
+        raise HTTPException(status_code=403, detail="Access denied: Path is outside workspace boundary.")
+
+    if not os.path.isfile(real_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {os.path.basename(real_path)}")
+
+    download_name = os.path.basename(real_path)
+    ext = os.path.splitext(download_name)[1].lower()
+
+    media_type_map = {
+        ".pdf": "application/pdf",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".csv": "text/csv; charset=utf-8",
+        ".zip": "application/zip",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+    }
+    media_type = media_type_map.get(ext, "application/octet-stream")
+
     return FileResponse(
-        path,
-        filename=os.path.basename(path),
-        media_type="application/octet-stream",
+        real_path,
+        filename=download_name,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
     )
 
 
@@ -158,7 +310,7 @@ class MergeRequest(BaseModel):
 
 @app.post("/api/structural/merge")
 def api_merge(req: MergeRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "merged.pdf")
     try:
         return merge_pdfs(req.file_paths, out_path)
     except Exception as e:
@@ -174,7 +326,8 @@ class SplitRequest(BaseModel):
 
 @app.post("/api/structural/split")
 def api_split(req: SplitRequest):
-    split_dir = os.path.join(WORKSPACE_DIR, f"split_{os.path.basename(req.file_path)}")
+    safe_base = os.path.splitext(os.path.basename(req.file_path))[0] or "split_doc"
+    split_dir = os.path.join(WORKSPACE_DIR, f"split_{safe_base}")
     try:
         return split_pdf(
             file_path=req.file_path,
@@ -201,7 +354,7 @@ class OrganizeRequest(BaseModel):
 
 @app.post("/api/structural/organize")
 def api_organize(req: OrganizeRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "organized.pdf")
     try:
         actions = [a.model_dump() for a in req.page_actions]
         return organize_pdf(req.file_path, out_path, actions)
@@ -218,7 +371,7 @@ class ProtectRequest(BaseModel):
 
 @app.post("/api/structural/protect")
 def api_protect(req: ProtectRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "protected.pdf")
     try:
         return protect_pdf(req.file_path, out_path, req.user_password, req.owner_password)
     except Exception as e:
@@ -233,7 +386,7 @@ class UnlockRequest(BaseModel):
 
 @app.post("/api/structural/unlock")
 def api_unlock(req: UnlockRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "unlocked.pdf")
     try:
         return unlock_pdf(req.file_path, out_path, req.password)
     except Exception as e:
@@ -247,7 +400,7 @@ class RepairRequest(BaseModel):
 
 @app.post("/api/structural/repair")
 def api_repair(req: RepairRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "repaired.pdf")
     try:
         return repair_pdf(req.file_path, out_path)
     except Exception as e:
@@ -264,7 +417,7 @@ class CompressRequest(BaseModel):
 
 @app.post("/api/compress")
 def api_compress(req: CompressRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "compressed.pdf")
     try:
         return compress_pdf(req.file_path, out_path, req.level)
     except Exception as e:
@@ -287,7 +440,7 @@ class WatermarkRequest(BaseModel):
 
 @app.post("/api/overlays/watermark")
 def api_watermark(req: WatermarkRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "watermarked.pdf")
     try:
         return add_text_watermark(
             input_path=req.file_path,
@@ -316,7 +469,7 @@ class PageNumberRequest(BaseModel):
 
 @app.post("/api/overlays/page-numbers")
 def api_page_numbers(req: PageNumberRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "numbered.pdf")
     try:
         return add_page_numbers(
             input_path=req.file_path,
@@ -352,7 +505,7 @@ class RedactRequest(BaseModel):
 
 @app.post("/api/overlays/redact")
 def api_redact(req: RedactRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "redacted.pdf")
     try:
         payload = [
             {"page_number": r.page_number, "boxes": [b.model_dump() for b in r.boxes]}
@@ -391,9 +544,23 @@ class PdfToImagesRequest(BaseModel):
 
 @app.post("/api/images/pdf-to-images")
 def api_pdf_to_images(req: PdfToImagesRequest):
-    out_dir = os.path.join(WORKSPACE_DIR, f"images_{os.path.basename(req.file_path)}")
+    import zipfile
+    safe_base = os.path.splitext(os.path.basename(req.file_path))[0] or "pdf_images"
+    out_dir = os.path.join(WORKSPACE_DIR, f"images_{safe_base}")
     try:
-        return pdf_to_images(req.file_path, out_dir, req.image_format, req.dpi)
+        res = pdf_to_images(req.file_path, out_dir, req.image_format, req.dpi)
+        # Package rendered pages into ZIP for convenient download if multiple pages
+        out_files = res.get("output_files", [])
+        if len(out_files) > 1:
+            zip_path = os.path.join(WORKSPACE_DIR, f"{safe_base}_images.zip")
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for f in out_files:
+                    zf.write(f, os.path.basename(f))
+            res["output_path"] = zip_path
+            res["zip_path"] = zip_path
+        elif len(out_files) == 1:
+            res["output_path"] = out_files[0]
+        return res
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -405,7 +572,7 @@ class ImagesToPdfRequest(BaseModel):
 
 @app.post("/api/images/images-to-pdf")
 def api_images_to_pdf(req: ImagesToPdfRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "images_to_pdf.pdf")
     try:
         return images_to_pdf(req.image_paths, out_path)
     except Exception as e:
@@ -467,7 +634,7 @@ class PdfToOfficeRequest(BaseModel):
 def api_pdf_to_excel(req: PdfToOfficeRequest):
     base = os.path.splitext(os.path.basename(req.file_path))[0]
     out_filename = req.output_filename or f"{base}.xlsx"
-    out_path = os.path.join(WORKSPACE_DIR, out_filename)
+    out_path = get_safe_workspace_path(out_filename, f"{base}.xlsx")
     try:
         return pdf_to_excel(req.file_path, out_path)
     except Exception as e:
@@ -478,7 +645,7 @@ def api_pdf_to_excel(req: PdfToOfficeRequest):
 def api_pdf_to_word(req: PdfToOfficeRequest):
     base = os.path.splitext(os.path.basename(req.file_path))[0]
     out_filename = req.output_filename or f"{base}.docx"
-    out_path = os.path.join(WORKSPACE_DIR, out_filename)
+    out_path = get_safe_workspace_path(out_filename, f"{base}.docx")
     try:
         return pdf_to_word(req.file_path, out_path)
     except Exception as e:
@@ -489,7 +656,7 @@ def api_pdf_to_word(req: PdfToOfficeRequest):
 def api_pdf_to_powerpoint(req: PdfToOfficeRequest):
     base = os.path.splitext(os.path.basename(req.file_path))[0]
     out_filename = req.output_filename or f"{base}.pptx"
-    out_path = os.path.join(WORKSPACE_DIR, out_filename)
+    out_path = get_safe_workspace_path(out_filename, f"{base}.pptx")
     try:
         return pdf_to_powerpoint(req.file_path, out_path)
     except Exception as e:
@@ -508,7 +675,7 @@ class OcrRequest(BaseModel):
 
 @app.post("/api/ocr/run")
 def api_ocr(req: OcrRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "ocr_searchable.pdf")
     res = run_ocr_on_pdf(
         input_pdf_path=req.file_path,
         output_pdf_path=out_path,
@@ -536,7 +703,7 @@ class VisualSignRequest(BaseModel):
 
 @app.post("/api/sign/visual")
 def api_sign_visual(req: VisualSignRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "signed_visual.pdf")
     try:
         return sign_pdf_visual(
             input_path=req.file_path,
@@ -570,7 +737,7 @@ class CryptoSignRequest(BaseModel):
 
 @app.post("/api/sign/crypto")
 def api_sign_crypto(req: CryptoSignRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "signed_crypto.pdf")
     try:
         box = (req.x, req.y, req.x + req.width, req.y + req.height) if req.visible else None
         return sign_pdf_cryptographic(
@@ -599,7 +766,7 @@ class GenerateCertRequest(BaseModel):
 
 @app.post("/api/sign/generate-cert")
 def api_generate_cert(req: GenerateCertRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "local_certificate.pfx")
     try:
         return generate_self_signed_cert(
             output_pfx_path=out_path,
@@ -632,12 +799,13 @@ class FillFormRequest(BaseModel):
     text_annotations: Optional[List[Dict[str, Any]]] = None
     flatten: bool = True
     lock_permissions: bool = False
+    permissions_password: Optional[str] = None
     output_filename: str = "filled_form.pdf"
 
 
 @app.post("/api/forms/fill")
 def api_fill_form(req: FillFormRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "filled_form.pdf")
     try:
         return fill_pdf_form(
             input_path=req.file_path,
@@ -646,7 +814,72 @@ def api_fill_form(req: FillFormRequest):
             text_annotations=req.text_annotations,
             flatten=req.flatten,
             lock_permissions=req.lock_permissions,
+            permissions_password=req.permissions_password,
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class BatchFormExportRequest(BaseModel):
+    file_paths: List[str]
+    output_base_name: Optional[str] = "batch_form_data"
+
+
+@app.post("/api/forms/batch-export")
+def api_batch_form_export(req: BatchFormExportRequest):
+    if not req.file_paths:
+        raise HTTPException(status_code=400, detail="No PDF files provided for batch form extraction")
+    
+    base_name = req.output_base_name or "batch_form_data"
+    # Ensure safe filename
+    base_name = os.path.splitext(os.path.basename(base_name))[0]
+    
+    try:
+        res = batch_extract_forms_to_spreadsheet(
+            pdf_paths=req.file_paths,
+            output_dir=WORKSPACE_DIR,
+            base_filename=base_name,
+        )
+        res["xlsx_url"] = f"/api/download?file={res['xlsx_filename']}"
+        res["csv_url"] = f"/api/download?file={res['csv_filename']}"
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ==================== Prepare a Form (Form Designer & Builder) ====================
+
+class DetectFieldsRequest(BaseModel):
+    file_path: str
+
+
+@app.post("/api/forms/builder/detect")
+def api_form_builder_detect(req: DetectFieldsRequest):
+    try:
+        return auto_detect_form_fields(req.file_path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class SaveFormBuilderRequest(BaseModel):
+    file_path: str
+    fields: List[Dict[str, Any]]
+    output_filename: Optional[str] = None
+
+
+@app.post("/api/forms/builder/save")
+def api_form_builder_save(req: SaveFormBuilderRequest):
+    base = os.path.splitext(os.path.basename(req.file_path))[0]
+    out_name = req.output_filename or f"fillable_{base}.pdf"
+    out_path = get_safe_workspace_path(out_name, f"fillable_{base}.pdf")
+    try:
+        res = create_interactive_form_pdf(
+            input_path=req.file_path,
+            output_path=out_path,
+            fields=req.fields,
+        )
+        res["download_url"] = f"/api/download?file={res['output_filename']}"
+        return res
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -662,7 +895,7 @@ class ApplyEditsRequest(BaseModel):
 
 @app.post("/api/edit/apply")
 def api_apply_edits(req: ApplyEditsRequest):
-    out_path = os.path.join(WORKSPACE_DIR, req.output_filename)
+    out_path = get_safe_workspace_path(req.output_filename, "edited_document.pdf")
     try:
         return apply_pdf_edits(
             input_path=req.file_path,
@@ -674,21 +907,334 @@ def api_apply_edits(req: ApplyEditsRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ==================== Document Comparison (Diff Engine) ====================
+
+class CompareAnalyzeRequest(BaseModel):
+    doc_a_path: str
+    doc_b_path: str
+    quick_visual_check: bool = True
+
+
+class ComparePageRequest(BaseModel):
+    doc_a_path: str
+    doc_b_path: str
+    page_number: int
+    dpi: int = 150
+
+
+class CompareExportReportRequest(BaseModel):
+    doc_a_path: str
+    doc_b_path: str
+    output_filename: str = "comparison_report.pdf"
+
+
+@app.post("/api/compare/analyze")
+def api_compare_analyze(req: CompareAnalyzeRequest):
+    try:
+        return analyze_document_comparison(
+            doc_a_path=req.doc_a_path,
+            doc_b_path=req.doc_b_path,
+            quick_visual_check=req.quick_visual_check,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/compare/render-page")
+def api_compare_render_page(req: ComparePageRequest):
+    try:
+        return render_page_diff_view(
+            doc_a_path=req.doc_a_path,
+            doc_b_path=req.doc_b_path,
+            page_number=req.page_number,
+            dpi=req.dpi,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/compare/export-report")
+def api_compare_export_report(req: CompareExportReportRequest):
+    out_path = get_safe_workspace_path(req.output_filename, "comparison_report.pdf")
+    try:
+        return generate_diff_report_pdf(
+            doc_a_path=req.doc_a_path,
+            doc_b_path=req.doc_b_path,
+            output_path=out_path,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ==================== Bates Numbering & Legal Stamping ====================
+
+class BatesStampRequest(BaseModel):
+    file_paths: List[str]
+    prefix: str = "CASE-"
+    suffix: str = ""
+    start_number: int = 1
+    padding_digits: int = 6
+    bates_position: str = "bottom-right"
+    exhibit_text: Optional[str] = None
+    exhibit_position: str = "top-right"
+    font_family: str = "Helvetica"
+    font_size: int = 10
+    hex_color: str = "#000000"
+    margin: float = 36.0
+    shrink_content: bool = True
+    target_pages: str = "all"
+    custom_range: str = ""
+    generate_csv_index: bool = True
+    generate_zip: bool = True
+
+
+@app.post("/api/bates/apply")
+def api_bates_apply(req: BatesStampRequest):
+    try:
+        return apply_bates_stamping(
+            input_paths=req.file_paths,
+            output_dir=WORKSPACE_DIR,
+            prefix=req.prefix,
+            suffix=req.suffix,
+            start_number=req.start_number,
+            padding_digits=req.padding_digits,
+            bates_position=req.bates_position,
+            exhibit_text=req.exhibit_text,
+            exhibit_position=req.exhibit_position,
+            font_family=req.font_family,
+            font_size=req.font_size,
+            hex_color=req.hex_color,
+            margin=req.margin,
+            shrink_content=req.shrink_content,
+            target_pages=req.target_pages,
+            custom_range=req.custom_range,
+            generate_csv_index=req.generate_csv_index,
+            generate_zip=req.generate_zip,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ==================== Deep Metadata Sanitizer & Privacy Purge ====================
+
+class PrivacyInspectRequest(BaseModel):
+    file_path: str
+
+
+@app.post("/api/sanitize/inspect")
+def api_sanitize_inspect(req: PrivacyInspectRequest):
+    try:
+        return inspect_pdf_privacy(req.file_path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class SanitizeRequest(BaseModel):
+    file_path: str
+    strip_metadata: bool = True
+    strip_xmp: bool = True
+    strip_attachments: bool = True
+    strip_javascript: bool = True
+    strip_actions: bool = True
+    strip_annotations: bool = True
+    keep_form_widgets: bool = True
+    strip_hidden_layers: bool = True
+    strip_bookmarks: bool = False
+    strip_thumbnails: bool = True
+    linearize: bool = True
+    output_filename: Optional[str] = None
+
+
+@app.post("/api/sanitize/run")
+def api_sanitize_run(req: SanitizeRequest):
+    base = os.path.splitext(os.path.basename(req.file_path))[0]
+    out_filename = req.output_filename or f"sanitized_{base}.pdf"
+    out_path = get_safe_workspace_path(out_filename, f"sanitized_{base}.pdf")
+    try:
+        res = sanitize_pdf_document(
+            input_path=req.file_path,
+            output_path=out_path,
+            strip_metadata=req.strip_metadata,
+            strip_xmp=req.strip_xmp,
+            strip_attachments=req.strip_attachments,
+            strip_javascript=req.strip_javascript,
+            strip_actions=req.strip_actions,
+            strip_annotations=req.strip_annotations,
+            keep_form_widgets=req.keep_form_widgets,
+            strip_hidden_layers=req.strip_hidden_layers,
+            strip_bookmarks=req.strip_bookmarks,
+            strip_thumbnails=req.strip_thumbnails,
+            linearize=req.linearize,
+        )
+        res["download_url"] = f"/api/download?file={res['output_filename']}"
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class BatchSanitizeRequest(BaseModel):
+    file_paths: List[str]
+    strip_metadata: bool = True
+    strip_xmp: bool = True
+    strip_attachments: bool = True
+    strip_javascript: bool = True
+    strip_actions: bool = True
+    strip_annotations: bool = True
+    keep_form_widgets: bool = True
+    strip_hidden_layers: bool = True
+    strip_bookmarks: bool = False
+    strip_thumbnails: bool = True
+    linearize: bool = True
+
+
+@app.post("/api/sanitize/batch")
+def api_sanitize_batch(req: BatchSanitizeRequest):
+    if not req.file_paths:
+        raise HTTPException(status_code=400, detail="No PDF files provided for batch sanitization")
+
+    import zipfile
+    results = []
+    output_files = []
+    total_saved_bytes = 0
+
+    for path in req.file_paths:
+        base = os.path.splitext(os.path.basename(path))[0]
+        out_name = f"sanitized_{base}.pdf"
+        out_path = get_safe_workspace_path(out_name, f"sanitized_{base}.pdf")
+        try:
+            r = sanitize_pdf_document(
+                input_path=path,
+                output_path=out_path,
+                strip_metadata=req.strip_metadata,
+                strip_xmp=req.strip_xmp,
+                strip_attachments=req.strip_attachments,
+                strip_javascript=req.strip_javascript,
+                strip_actions=req.strip_actions,
+                strip_annotations=req.strip_annotations,
+                keep_form_widgets=req.keep_form_widgets,
+                strip_hidden_layers=req.strip_hidden_layers,
+                strip_bookmarks=req.strip_bookmarks,
+                strip_thumbnails=req.strip_thumbnails,
+                linearize=req.linearize,
+            )
+            r["filename"] = os.path.basename(path)
+            r["download_url"] = f"/api/download?file={r['output_filename']}"
+            results.append(r)
+            output_files.append(out_path)
+            total_saved_bytes += r.get("bytes_saved", 0)
+        except Exception as e:
+            results.append({"filename": os.path.basename(path), "error": str(e), "status": "error"})
+
+    # Create ZIP bundle
+    zip_name = f"sanitized_bundle_{len(output_files)}_docs.zip"
+    zip_path = get_safe_workspace_path(zip_name, "sanitized_bundle.zip")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in output_files:
+            zf.write(f, os.path.basename(f))
+
+    return {
+        "status": "success",
+        "total_documents": len(req.file_paths),
+        "successful_count": len(output_files),
+        "total_bytes_saved": total_saved_bytes,
+        "results": results,
+        "zip_filename": zip_name,
+        "zip_url": f"/api/download?file={zip_name}",
+    }
+
+
+# ==================== Batch Action Wizard & Automation Pipeline ====================
+
+@app.get("/api/pipeline/presets")
+def api_pipeline_presets():
+    return WORKFLOW_PRESETS
+
+
+class PipelineExecuteRequest(BaseModel):
+    file_paths: List[str]
+    steps: List[Dict[str, Any]]
+    output_prefix: str = "pipelined_"
+    bundle_zip: bool = True
+
+
+@app.post("/api/pipeline/run")
+def api_pipeline_run(req: PipelineExecuteRequest):
+    if not req.file_paths:
+        raise HTTPException(status_code=400, detail="No PDF files provided for automation pipeline")
+    if not req.steps:
+        raise HTTPException(status_code=400, detail="No pipeline steps configured")
+
+    try:
+        res = batch_execute_pipeline(
+            file_paths=req.file_paths,
+            output_dir=WORKSPACE_DIR,
+            steps=req.steps,
+            output_prefix=req.output_prefix or "pipelined_",
+            bundle_zip=req.bundle_zip,
+        )
+        if res.get("zip_filename"):
+            res["zip_url"] = f"/api/download?file={res['zip_filename']}"
+
+        for r in res.get("results", []):
+            if "output_filename" in r:
+                r["download_url"] = f"/api/download?file={r['output_filename']}"
+
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ==================== Third-Party Attribution ====================
 
 @app.get("/api/licenses")
 def get_licenses():
-    import subprocess, sys, json
+    import json
+    # 1. Prefer static pre-generated notices file to eliminate PyInstaller fork bombs
+    cur_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(cur_dir, "third_party_notices.json"),
+        os.path.join(os.path.dirname(cur_dir), "third_party_notices.json"),
+        os.path.join(os.path.dirname(cur_dir), "public", "third_party_notices.json"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            try:
+                with open(c, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+
+    # 2. Development fallback
+    import sys
+    if getattr(sys, "frozen", False):
+        return [
+            {
+                "Name": "LocalPDF Suite",
+                "Version": "1.0.0",
+                "License": "MIT",
+                "Notice": "Bundled offline application binaries.",
+            }
+        ]
+
     try:
+        import subprocess
         result = subprocess.run(
             [sys.executable, "-m", "piplicenses", "--format=json"],
             capture_output=True,
             text=True,
             check=True,
+            timeout=5,
         )
         return json.loads(result.stdout)
-    except Exception as e:
-        return {"error": str(e)}
+    except Exception:
+        return [
+            {
+                "Name": "LocalPDF Suite",
+                "Version": "1.0.0",
+                "License": "MIT",
+                "Notice": "Offline application dependencies.",
+            }
+        ]
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import {
   PenTool,
@@ -352,12 +352,12 @@ export const SignPanel: React.FC = () => {
   // ==================== 5. SUBMIT VISUAL SIGN ====================
   const handleVisualSign = async () => {
     if (!selectedFile) {
-      alert('Please upload and select a PDF document first.');
+      showToast('Please upload and select a PDF document first.', 'warning');
       return;
     }
 
     if (!signatureDataUrl) {
-      alert('Please draw or import a signature first.');
+      showToast('Please draw or import a signature first.', 'warning');
       return;
     }
 
@@ -386,7 +386,7 @@ export const SignPanel: React.FC = () => {
   // ==================== 6. CRYPTOGRAPHIC SIGN & CERT GENERATION ====================
   const handleCryptoSign = async () => {
     if (!selectedFile) {
-      alert('Please upload and select a PDF document first.');
+      showToast('Please upload and select a PDF document first.', 'warning');
       return;
     }
 
@@ -394,7 +394,7 @@ export const SignPanel: React.FC = () => {
 
     if (!pfxPathToUse) {
       if (!certFile) {
-        alert('Please select your .pfx or .p12 digital certificate file, or generate one in the "Create Certificate" tab.');
+        showToast('Please select your .pfx or .p12 digital certificate file, or generate one in the "Create Certificate" tab.', 'warning');
         return;
       }
       const uploadedCert = await uploadFile(certFile);

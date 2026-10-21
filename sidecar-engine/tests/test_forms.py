@@ -153,3 +153,85 @@ def test_complex_form_with_sample_pdf(temp_dir):
         assert "54" in text
         assert "Choice 2" in text
 
+
+def test_unflattened_form_appearance_streams_rendered_immediately(temp_dir):
+    """
+    Verifies that when flatten=False, compliant /AP/N Form XObjects are generated
+    for all updated fields, /NeedAppearances is False, and viewers render the text
+    immediately upon opening without requiring the user to click into the field.
+    """
+    form_pdf = os.path.join(temp_dir, "form_unflattened_test.pdf")
+    c = canvas.Canvas(form_pdf, pagesize=letter)
+    c.drawString(100, 700, "Registration Portal")
+    form = c.acroForm
+    form.textfield(name="full_legal_name", x=100, y=650, width=250, height=22, value="")
+    form.checkbox(name="terms_agree", x=100, y=600, size=16)
+    c.save()
+
+    out_pdf = os.path.join(temp_dir, "filled_immediately_visible.pdf")
+    res = fill_pdf_form(
+        input_path=form_pdf,
+        output_path=out_pdf,
+        field_values={
+            "full_legal_name": "Eleanor Vance",
+            "terms_agree": True,
+        },
+        flatten=False,
+    )
+    assert res["status"] == "success"
+
+    # Verify via pikepdf that /AP/N exists on both fields
+    with pikepdf.open(out_pdf) as p:
+        assert p.Root.AcroForm.get("/NeedAppearances", False) is False
+        page = p.pages[0]
+        found_name = False
+        found_terms = False
+        for a in page.Annots:
+            if a.get("/T") == "full_legal_name":
+                found_name = True
+                assert "/AP" in a
+                assert "/N" in a["/AP"]
+                stream_content = a["/AP"]["/N"].read_bytes().decode("latin1", errors="replace")
+                assert "Eleanor Vance" in stream_content
+            elif a.get("/T") == "terms_agree":
+                found_terms = True
+                assert "/AP" in a
+        assert found_name is True
+        assert found_terms is True
+
+
+def test_permissions_password_locking_and_unlocking(temp_dir):
+    """
+    Verifies that lock_permissions=True with a specified permissions_password
+    restricts editing without an open password, and unlocks with that exact password.
+    """
+    form_pdf = os.path.join(temp_dir, "perm_test.pdf")
+    c = canvas.Canvas(form_pdf, pagesize=letter)
+    c.drawString(100, 700, "Permission Test")
+    c.save()
+
+    out_pdf = os.path.join(temp_dir, "perm_locked.pdf")
+    custom_pwd = "MySecretUnlock2026"
+    res = fill_pdf_form(
+        input_path=form_pdf,
+        output_path=out_pdf,
+        flatten=False,
+        lock_permissions=True,
+        permissions_password=custom_pwd,
+    )
+    assert res["status"] == "success"
+    assert res["permissions_locked"] is True
+    assert res["permissions_password"] == custom_pwd
+
+    # Verify that file opens freely with empty user password
+    with pikepdf.open(out_pdf, password="") as p:
+        assert p.is_encrypted is True
+        assert p.owner_password_matched is False
+        assert p.allow.modify_form is False
+
+    # Verify that owner password unlocks it
+    with pikepdf.open(out_pdf, password=custom_pwd) as p:
+        assert p.is_encrypted is True
+        assert p.owner_password_matched is True
+
+

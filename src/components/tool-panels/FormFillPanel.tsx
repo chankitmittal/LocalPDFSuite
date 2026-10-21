@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import {
   FileEdit,
@@ -19,7 +19,18 @@ import {
   Sliders,
   Move,
   Layers,
+  FileSpreadsheet,
+  Table,
+  CheckCircle2,
+  FileCheck,
+  BarChart3,
+  Files,
+  Eye,
+  EyeOff,
+  Key,
 } from 'lucide-react';
+import { BatchFormExportResult } from '../../types';
+import { formatSize } from '../../utils/formatters';
 
 interface FormFieldItem {
   name: string;
@@ -43,8 +54,18 @@ interface TextAnnotation {
 }
 
 export const FormFillPanel: React.FC = () => {
-  const { selectedFile, currentJob } = useAppStore();
+  const { selectedFile, currentJob, files, removeFile } = useAppStore();
   const { callApi, triggerDownload } = useSidecar();
+
+  // Top-level Mode: 'single' (fill active PDF) vs 'batch' (export multiple forms to Excel/CSV)
+  const [mainMode, setMainMode] = useState<'single' | 'batch'>('single');
+
+  // Batch Form Export State
+  const [batchOutputName, setBatchOutputName] = useState('batch_form_export');
+  const [batchProcessing, setBatchProcessing] = useState(false);
+  const [batchResult, setBatchResult] = useState<BatchFormExportResult | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchPreviewTab, setBatchPreviewTab] = useState<'data' | 'schema'>('data');
 
   // Mode: 'acroform' (interactive fields) vs 'annotations' (click-to-type on flat PDF)
   const [activeTab, setActiveTab] = useState<'acroform' | 'annotations'>('acroform');
@@ -55,7 +76,9 @@ export const FormFillPanel: React.FC = () => {
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
   const [fieldValues, setFieldValues] = useState<Record<string, any>>({});
   const [flatten, setFlatten] = useState(true);
-  const [lockPermissions, setLockPermissions] = useState(true);
+  const [lockPermissions, setLockPermissions] = useState(false);
+  const [permissionsPassword, setPermissionsPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Flat text annotations
   const [annotations, setAnnotations] = useState<TextAnnotation[]>([]);
@@ -272,7 +295,7 @@ export const FormFillPanel: React.FC = () => {
   // 4. Submit Fill & Save
   const handleSaveForm = async () => {
     if (!selectedFile) {
-      alert('Please upload and select a PDF document first.');
+      showToast('Please upload and select a PDF document first.', 'warning');
       return;
     }
 
@@ -291,50 +314,132 @@ export const FormFillPanel: React.FC = () => {
       text_annotations: payloadAnnotations.length > 0 ? payloadAnnotations : undefined,
       flatten,
       lock_permissions: lockPermissions,
+      permissions_password: lockPermissions && permissionsPassword.trim() ? permissionsPassword.trim() : undefined,
       output_filename: `filled_${selectedFile.name}`,
     });
   };
 
+  const handleBatchExport = async () => {
+    const pdfPaths = files
+      .filter((f) => f.name.toLowerCase().endsWith('.pdf'))
+      .map((f) => f.path);
+
+    if (pdfPaths.length === 0) {
+      setBatchError('No PDF documents in queue. Please drop filled PDF forms in the dropzone above.');
+      return;
+    }
+
+    setBatchProcessing(true);
+    setBatchError(null);
+    try {
+      const res = await callApi('/api/forms/batch-export', {
+        file_paths: pdfPaths,
+        output_base_name: batchOutputName.trim() || 'batch_form_export',
+      });
+      if (res && res.status === 'success') {
+        setBatchResult(res as BatchFormExportResult);
+      } else {
+        setBatchError(res?.detail || 'Batch form data extraction failed.');
+      }
+    } catch (err: any) {
+      setBatchError(err?.message || 'Error executing batch form extraction.');
+    } finally {
+      setBatchProcessing(false);
+    }
+  };
+
+  const handleDownloadXlsx = () => {
+    if (batchResult?.xlsx_url) {
+      triggerDownload(batchResult.xlsx_url);
+    }
+  };
+
+  const handleDownloadCsv = () => {
+    if (batchResult?.csv_url) {
+      triggerDownload(batchResult.csv_url);
+    }
+  };
+
   const currentAnnotations = annotations.filter((a) => a.pageNumber === currentPage);
+  const pdfQueue = files.filter((f) => f.name.toLowerCase().endsWith('.pdf'));
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
-      <div className="border-b border-slate-800 pb-4">
-        <h2 className="text-base font-bold text-white flex items-center gap-2">
-          <FileEdit className="w-5 h-5 text-brand-400" />
-          Fill PDF Forms & Documents
-        </h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Detect and fill interactive AcroForm fields (text fields, checkboxes, dropdowns) or click anywhere to type on flat, scanned PDF forms.
-        </p>
+      {/* Header and Mode Selector */}
+      <div className="border-b border-slate-800 pb-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <FileEdit className="w-5 h-5 text-brand-400" />
+              PDF Form Workstation
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">
+              Fill single interactive or flat forms, or batch-extract field data across 50+ filled PDFs into formatted Excel &amp; CSV.
+            </p>
+          </div>
+
+          {/* Mode Switcher */}
+          <div className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-800 self-start sm:self-auto shadow-inner">
+            <button
+              onClick={() => setMainMode('single')}
+              className={`py-2 px-3.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition ${
+                mainMode === 'single'
+                  ? 'bg-brand-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FileEdit className="w-3.5 h-3.5" />
+              Fill Single Form
+            </button>
+            <button
+              onClick={() => setMainMode('batch')}
+              className={`py-2 px-3.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition ${
+                mainMode === 'batch'
+                  ? 'bg-brand-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              Batch Form Data to Excel / CSV
+              {pdfQueue.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-slate-300">
+                  {pdfQueue.length}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Mode Tabs */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={() => setActiveTab('acroform')}
-          className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-            activeTab === 'acroform'
-              ? 'border-brand-500 bg-brand-500/10 text-white shadow-sm'
-              : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Type className="w-4 h-4 text-brand-400" />
-          Interactive Form Fields {hasAcroform && `(${formFields.length})`}
-        </button>
+      {/* VIEW 1: SINGLE FORM FILLING */}
+      {mainMode === 'single' && (
+        <>
+          {/* Mode Tabs */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setActiveTab('acroform')}
+              className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                activeTab === 'acroform'
+                  ? 'border-brand-500 bg-brand-500/10 text-white shadow-sm'
+                  : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Type className="w-4 h-4 text-brand-400" />
+              Interactive Form Fields {hasAcroform && `(${formFields.length})`}
+            </button>
 
-        <button
-          onClick={() => setActiveTab('annotations')}
-          className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-            activeTab === 'annotations'
-              ? 'border-brand-500 bg-brand-500/10 text-white shadow-sm'
-              : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Plus className="w-4 h-4 text-brand-400" />
-          Click-to-Type Text on Any Page {annotations.length > 0 && `(${annotations.length})`}
-        </button>
-      </div>
+            <button
+              onClick={() => setActiveTab('annotations')}
+              className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                activeTab === 'annotations'
+                  ? 'border-brand-500 bg-brand-500/10 text-white shadow-sm'
+                  : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Plus className="w-4 h-4 text-brand-400" />
+              Click-to-Type Text on Any Page {annotations.length > 0 && `(${annotations.length})`}
+            </button>
+          </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Form Controls / Fields */}
@@ -566,22 +671,63 @@ export const FormFillPanel: React.FC = () => {
               </div>
             </label>
 
-            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-800/40 border border-slate-800 cursor-pointer hover:bg-slate-800/60 transition-colors">
-              <input
-                type="checkbox"
-                checked={lockPermissions}
-                onChange={(e) => setLockPermissions(e.target.checked)}
-                className="w-4 h-4 rounded text-brand-600 accent-brand-500 cursor-pointer mt-0.5"
-              />
-              <div>
-                <span className="text-xs font-semibold text-slate-200 block">
-                  Lock Document Permissions (Read-Only Security)
-                </span>
-                <span className="text-[10px] text-slate-400 block mt-0.5">
-                  Restricts document editing even in Adobe Acrobat Pro or PDF editors without requiring a password to open.
-                </span>
-              </div>
-            </label>
+            <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-800 space-y-2.5">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={lockPermissions}
+                  onChange={(e) => setLockPermissions(e.target.checked)}
+                  className="w-4 h-4 rounded text-brand-600 accent-brand-500 cursor-pointer mt-0.5"
+                />
+                <div className="flex-1">
+                  <span className="text-xs font-semibold text-slate-200 block">
+                    Lock Document Permissions (Read-Only Security)
+                  </span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    Restricts document editing even in Adobe Acrobat Pro without requiring a password to open.
+                  </span>
+                </div>
+              </label>
+
+              {lockPermissions && (
+                <div className="pt-2.5 border-t border-slate-700/60 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-semibold text-slate-300 flex items-center gap-1">
+                      <Key className="w-3 h-3 text-amber-400" /> Permissions Unlock Password
+                    </span>
+                    <span className="text-[10px] text-slate-400">Optional</span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={permissionsPassword}
+                      onChange={(e) => setPermissionsPassword(e.target.value)}
+                      placeholder="e.g. MySecretPass2026 (or leave blank for LocalPDF_Unlock)"
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded-lg text-white font-mono focus:border-brand-500 outline-none pr-8"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2 top-2 text-slate-400 hover:text-slate-200"
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-tight">
+                    {permissionsPassword.trim() ? (
+                      <span className="text-emerald-400 font-mono">
+                        Password set to: "{permissionsPassword.trim()}". Remember this to unlock future edits.
+                      </span>
+                    ) : (
+                      <span>
+                        If left blank, default master password <code className="text-amber-300 font-mono">LocalPDF_Unlock</code> is applied.
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Action Button */}
@@ -705,6 +851,325 @@ export const FormFillPanel: React.FC = () => {
         <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{currentJob.error}</span>
+        </div>
+      )}
+        </>
+      )}
+
+      {/* VIEW 2: ENTERPRISE BATCH FORM EXTRACTION */}
+      {mainMode === 'batch' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Queue & Batch Settings */}
+            <div className="lg:col-span-5 space-y-4">
+              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Files className="w-3.5 h-3.5 text-brand-400" />
+                    Form Document Queue ({pdfQueue.length})
+                  </h3>
+                  <span className="text-[10px] text-slate-400">
+                    {pdfQueue.length} {pdfQueue.length === 1 ? 'file' : 'files'} loaded
+                  </span>
+                </div>
+
+                {pdfQueue.length === 0 ? (
+                  <div className="py-8 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl space-y-2">
+                    <FileSpreadsheet className="w-8 h-8 mx-auto opacity-30 text-slate-400" />
+                    <p>No PDF forms in queue.</p>
+                    <p className="text-[11px] text-slate-600">Drop filled PDF forms in the dropzone above to begin.</p>
+                  </div>
+                ) : (
+                  <div className="max-h-[280px] overflow-y-auto space-y-1.5 pr-1">
+                    {pdfQueue.map((file, idx) => (
+                      <div
+                        key={file.id}
+                        className="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800/80 text-xs"
+                      >
+                        <div className="flex items-center gap-2 truncate pr-2">
+                          <span className="text-[10px] font-mono text-slate-500 w-4">{idx + 1}.</span>
+                          <span className="truncate text-slate-300 font-medium" title={file.name}>
+                            {file.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-[10px] text-slate-400">{formatSize(file.size)}</span>
+                          <button
+                            onClick={() => removeFile(file.id)}
+                            className="text-slate-500 hover:text-red-400 transition"
+                            title="Remove file"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Output Filename & Format Specifications */}
+              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Export Filename Prefix
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={batchOutputName}
+                    onChange={(e) => setBatchOutputName(e.target.value)}
+                    placeholder="batch_form_export"
+                    className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500 font-mono"
+                  />
+                  <span className="text-xs text-slate-500 font-mono">.xlsx / .csv</span>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                  <div className="text-[11px] text-slate-400 font-medium">Export Bundle Includes:</div>
+                  <div className="flex flex-col gap-1.5 text-[11px] text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <span><strong>Microsoft Excel (.xlsx):</strong> Formatted header, frozen panes, auto-fit widths, fill-rate stats sheet</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-blue-400" />
+                      <span><strong>RFC 4180 CSV:</strong> UTF-8 BOM encoding for direct, non-corrupted opening in Excel &amp; Pandas</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <button
+                onClick={handleBatchExport}
+                disabled={batchProcessing || pdfQueue.length === 0}
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/20 transition active:scale-[0.99] disabled:opacity-50"
+              >
+                {batchProcessing ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Extracting Schemas &amp; Exporting...
+                  </>
+                ) : (
+                  <>
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Extract All Form Data ({pdfQueue.length} PDF{pdfQueue.length === 1 ? '' : 's'})
+                  </>
+                )}
+              </button>
+
+              {batchError && (
+                <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{batchError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column: Results & Interactive Preview */}
+            <div className="lg:col-span-7 space-y-4">
+              {!batchResult ? (
+                <div className="p-8 rounded-2xl bg-slate-950/40 border border-slate-800/80 text-center space-y-4">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto text-emerald-400">
+                    <Table className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Batch Form Extraction Pipeline</h4>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
+                      Drop multiple filled PDF documents to automatically discover union schemas, extract text fields, checkbox states, and dropdown choices into master spreadsheets.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-800/60 max-w-lg mx-auto text-left">
+                    <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/60">
+                      <div className="text-[10px] font-semibold text-slate-400 uppercase">Schema Union</div>
+                      <div className="text-xs font-bold text-slate-200 mt-1">Auto-Discovered</div>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Combines disparate form structures seamlessly</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/60">
+                      <div className="text-[10px] font-semibold text-slate-400 uppercase">Type Coercion</div>
+                      <div className="text-xs font-bold text-slate-200 mt-1">Smart Values</div>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Text, Yes/No checks, &amp; dropdown choices</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/60">
+                      <div className="text-[10px] font-semibold text-slate-400 uppercase">100% Offline</div>
+                      <div className="text-xs font-bold text-slate-200 mt-1">Zero Cloud</div>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Confidential data stays on your machine</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Success Banner & Metrics */}
+                  <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-800/60 space-y-4 shadow-xl">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                        <CheckCircle2 className="w-4 h-4" />
+                        Extraction Complete!
+                      </div>
+                      <span className="text-[11px] text-emerald-400/80 font-mono">
+                        {batchResult.total_documents} documents &bull; {batchResult.total_fields} unique fields
+                      </span>
+                    </div>
+
+                    {/* Download Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        onClick={handleDownloadXlsx}
+                        className="p-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-between shadow-lg shadow-emerald-600/20 transition active:scale-[0.99]"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <FileSpreadsheet className="w-5 h-5 flex-shrink-0" />
+                          <div className="text-left">
+                            <div className="text-xs font-bold">Download Excel (.xlsx)</div>
+                            <div className="text-[10px] text-emerald-100">{batchResult.xlsx_filename} ({formatSize(batchResult.xlsx_size)})</div>
+                          </div>
+                        </div>
+                        <Download className="w-4 h-4 opacity-80" />
+                      </button>
+
+                      <button
+                        onClick={handleDownloadCsv}
+                        className="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-between border border-slate-700 shadow-md transition active:scale-[0.99]"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Download className="w-5 h-5 text-blue-400 flex-shrink-0" />
+                          <div className="text-left">
+                            <div className="text-xs font-bold">Download CSV (.csv)</div>
+                            <div className="text-[10px] text-slate-400">{batchResult.csv_filename} ({formatSize(batchResult.csv_size)})</div>
+                          </div>
+                        </div>
+                        <Download className="w-4 h-4 opacity-80" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sub-Tabs: Data Table vs Field Schema */}
+                  <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setBatchPreviewTab('data')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                            batchPreviewTab === 'data'
+                              ? 'bg-slate-800 text-white'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <Table className="w-3.5 h-3.5" />
+                          Data Table Preview ({batchResult.preview_rows.length} rows)
+                        </button>
+                        <button
+                          onClick={() => setBatchPreviewTab('schema')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                            batchPreviewTab === 'schema'
+                              ? 'bg-slate-800 text-white'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <BarChart3 className="w-3.5 h-3.5 text-brand-400" />
+                          Schema &amp; Fill Rates ({batchResult.schema.length} fields)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* TAB: DATA TABLE PREVIEW */}
+                    {batchPreviewTab === 'data' && (
+                      <div className="overflow-x-auto max-h-[380px] border border-slate-800/80 rounded-xl">
+                        <table className="w-full text-[11px] text-left border-collapse">
+                          <thead className="bg-slate-900 text-slate-300 font-bold sticky top-0 z-10 shadow-sm">
+                            <tr>
+                              {batchResult.headers.map((h, i) => (
+                                <th
+                                  key={i}
+                                  className={`px-3 py-2 border-b border-slate-800 whitespace-nowrap ${
+                                    i < batchResult.metadata_column_count
+                                      ? 'text-slate-400 font-mono text-[10px] bg-slate-950/80'
+                                      : 'text-white'
+                                  }`}
+                                >
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 bg-slate-950/40">
+                            {batchResult.preview_rows.map((row, rIdx) => (
+                              <tr key={rIdx} className="hover:bg-slate-800/30 transition-colors">
+                                {row.map((val, cIdx) => (
+                                  <td
+                                    key={cIdx}
+                                    className={`px-3 py-1.5 whitespace-nowrap truncate max-w-[200px] ${
+                                      cIdx < batchResult.metadata_column_count
+                                        ? 'text-slate-400 font-mono text-[10px]'
+                                        : 'text-slate-200'
+                                    }`}
+                                    title={val}
+                                  >
+                                    {val || <span className="text-slate-600 italic">—</span>}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* TAB: SCHEMA & FILL RATES */}
+                    {batchPreviewTab === 'schema' && (
+                      <div className="overflow-x-auto max-h-[380px] border border-slate-800/80 rounded-xl">
+                        <table className="w-full text-[11px] text-left border-collapse">
+                          <thead className="bg-slate-900 text-slate-300 font-bold sticky top-0 z-10 shadow-sm">
+                            <tr>
+                              <th className="px-3 py-2 border-b border-slate-800">Field Name</th>
+                              <th className="px-3 py-2 border-b border-slate-800">Type</th>
+                              <th className="px-3 py-2 border-b border-slate-800">Presence</th>
+                              <th className="px-3 py-2 border-b border-slate-800">Populated</th>
+                              <th className="px-3 py-2 border-b border-slate-800 w-36">Fill Rate %</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60 bg-slate-950/40">
+                            {batchResult.schema.map((item, idx) => (
+                              <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
+                                <td className="px-3 py-2 font-mono text-slate-200 font-medium">
+                                  {item.field_name}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] uppercase font-mono text-slate-300">
+                                    {item.type}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-slate-300">
+                                  {item.documents_present}/{batchResult.total_documents} ({item.present_pct}%)
+                                </td>
+                                <td className="px-3 py-2 text-slate-300">
+                                  {item.populated_count}/{batchResult.total_documents}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                                      <div
+                                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
+                                        style={{ width: `${item.fill_rate_pct}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-[10px] font-mono text-slate-400 w-8 text-right">
+                                      {item.fill_rate_pct}%
+                                    </span>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

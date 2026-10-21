@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
+import { formatSize } from '../../utils/formatters';
 import { MergeInteractiveOrganizer } from './MergeInteractiveOrganizer';
 import { SplitPageOrganizer } from './SplitPageOrganizer';
 import {
@@ -33,14 +34,6 @@ export const MergeSplitPanel: React.FC = () => {
   const [customRange, setCustomRange] = useState('1-3, 5');
   const [fixedInterval, setFixedInterval] = useState(2);
 
-  const formatSize = (bytes?: number) => {
-    if (!bytes) return '';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-  };
-
   const isMerge = activeTool === 'merge';
 
   // In split mode, identify which PDF is currently active
@@ -52,7 +45,7 @@ export const MergeSplitPanel: React.FC = () => {
 
   const handleMerge = async () => {
     if (files.length < 2) {
-      alert('Please select at least 2 PDF files to merge.');
+      showToast('Please select at least 2 PDF files to merge.', 'warning');
       return;
     }
     const filePaths = files.map((f) => f.path);
@@ -64,11 +57,11 @@ export const MergeSplitPanel: React.FC = () => {
 
   const handleSplit = async () => {
     if (!activePdf) {
-      alert('Please upload or select a PDF file to split.');
+      showToast('Please upload or select a PDF file to split.', 'warning');
       return;
     }
     if (splitMode === 'range' && !customRange.trim()) {
-      alert('Please select at least one page or enter a page range (e.g. 1-3, 5).');
+      showToast('Please select at least one page or enter a page range (e.g. 1-3, 5).', 'warning');
       return;
     }
 

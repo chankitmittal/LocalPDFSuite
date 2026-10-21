@@ -5,6 +5,11 @@ import { FileDropzone } from './components/dropzone/FileDropzone';
 import { PdfCanvas } from './components/pdf-canvas/PdfCanvas';
 import { MergeSplitPanel } from './components/tool-panels/MergeSplitPanel';
 import { EditPdfPanel } from './components/tool-panels/EditPdfPanel';
+import { ComparePanel } from './components/tool-panels/ComparePanel';
+import { BatesPanel } from './components/tool-panels/BatesPanel';
+import { SanitizePanel } from './components/tool-panels/SanitizePanel';
+import { ActionWizardPanel } from './components/tool-panels/ActionWizardPanel';
+import { PrepareFormPanel } from './components/tool-panels/PrepareFormPanel';
 import { OrganizePanel } from './components/tool-panels/OrganizePanel';
 import { CompressPanel } from './components/tool-panels/CompressPanel';
 import { SecurityPanel } from './components/tool-panels/SecurityPanel';
@@ -16,6 +21,7 @@ import { OfficeConvertPanel } from './components/tool-panels/OfficeConvertPanel'
 import { ImageSuitePanel } from './components/tool-panels/ImageSuitePanel';
 import { OcrPanel } from './components/tool-panels/OcrPanel';
 import { SettingsPanel } from './components/tool-panels/SettingsPanel';
+import { ToastContainer } from './components/common/ToastContainer';
 
 export const App: React.FC = () => {
   const { activeTool, selectedFile } = useAppStore();
@@ -27,6 +33,16 @@ export const App: React.FC = () => {
         return <MergeSplitPanel />;
       case 'edit':
         return <EditPdfPanel />;
+      case 'compare':
+        return <ComparePanel />;
+      case 'bates':
+        return <BatesPanel />;
+      case 'sanitize':
+        return <SanitizePanel />;
+      case 'pipeline':
+        return <ActionWizardPanel />;
+      case 'prepare-form':
+        return <PrepareFormPanel />;
       case 'organize':
         return <OrganizePanel />;
       case 'compress':
@@ -78,6 +94,8 @@ export const App: React.FC = () => {
       <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-500">
         LocalPDF Suite &bull; 100% Offline Desktop Processing &bull; Zero External API Calls
       </footer>
+
+      <ToastContainer />
     </div>
   );
 };

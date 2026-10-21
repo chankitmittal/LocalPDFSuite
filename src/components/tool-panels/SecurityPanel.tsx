@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import { Lock, Unlock, Wrench, Download, CheckCircle, AlertCircle } from 'lucide-react';
 
@@ -13,17 +13,17 @@ export const SecurityPanel: React.FC = () => {
 
   const handleAction = async () => {
     if (!selectedFile) {
-      alert('Please upload and select a PDF file first.');
+      showToast('Please upload and select a PDF file first.', 'warning');
       return;
     }
 
     if (mode === 'protect') {
       if (!password) {
-        alert('Please enter a password.');
+        showToast('Please enter a password.', 'warning');
         return;
       }
       if (password !== confirmPassword) {
-        alert('Passwords do not match.');
+        showToast('Passwords do not match.', 'warning');
         return;
       }
       await callApi('/api/structural/protect', {
@@ -33,7 +33,7 @@ export const SecurityPanel: React.FC = () => {
       });
     } else if (mode === 'unlock') {
       if (!password) {
-        alert('Please enter the current document password.');
+        showToast('Please enter the current document password.', 'warning');
         return;
       }
       await callApi('/api/structural/unlock', {

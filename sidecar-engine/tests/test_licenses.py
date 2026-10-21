@@ -80,3 +80,49 @@ def test_no_gpl_or_agpl_licenses():
             violations.append(f"{pkg_name} ({item.get('License')})")
 
     assert not violations, f"CRITICAL LICENSE AUDIT FAILED: GPL/AGPL packages found: {violations}"
+
+
+def test_static_licenses_file_integrity():
+    """Verify that static third_party_notices.json exists, is valid JSON, and contains no GPL/AGPL."""
+    import os
+    cur_dir = os.path.dirname(os.path.abspath(__file__))
+    engine_dir = os.path.dirname(cur_dir)
+    notices_file = os.path.join(engine_dir, "third_party_notices.json")
+
+    assert os.path.exists(notices_file), f"Static notices file missing: {notices_file}"
+
+    with open(notices_file, "r", encoding="utf-8") as f:
+        notices = json.load(f)
+
+    assert isinstance(notices, list) and len(notices) > 20, "Notices list must contain all dependencies"
+
+    for item in notices:
+        lic = item.get("License", "").lower()
+        for kw in FORBIDDEN_LICENSE_KEYWORDS:
+            if kw in lic and "lgpl" not in lic and "lesser" not in lic:
+                pytest.fail(f"Forbidden license in static notices: {item['Name']} ({item['License']})")
+
+
+def test_reportlab_commercial_boundary():
+    """Ensure ReportLab usage is strictly confined to free open-source BSD modules."""
+    import reportlab
+    from reportlab.pdfgen import canvas
+    from reportlab.lib import colors, pagesizes
+
+    # Verify that commercial Plus extensions are NOT installed or imported
+    import sys
+    assert "rlextra" not in sys.modules, "Commercial ReportLab Plus (rlextra) must not be present"
+
+
+def test_pikepdf_mpl_boundary():
+    """Ensure pikepdf remains an external weak-copyleft dependency and is not vendored in-tree."""
+    import pikepdf
+    import os
+
+    pike_file = os.path.abspath(pikepdf.__file__)
+    cur_file = os.path.abspath(__file__)
+    workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(cur_file)))
+    core_dir = os.path.join(workspace_root, "sidecar-engine", "core")
+
+    # Ensure pikepdf is not inside the local core directory
+    assert not pike_file.startswith(core_dir), "pikepdf must not be vendored or patched in-tree"

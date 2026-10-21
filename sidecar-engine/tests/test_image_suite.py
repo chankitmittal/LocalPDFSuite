@@ -52,5 +52,9 @@ def test_bulk_process_images(temp_dir):
 
     assert res["status"] == "success"
     assert res["processed_count"] == 2
+    assert "output_path" in res
+    assert os.path.exists(res["output_path"])
+    assert res["output_path"].endswith(".zip")
+    assert len(res["output_files"]) == 2
     for item in res["results"]:
         assert os.path.exists(item["output_path"])

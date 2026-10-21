@@ -38,9 +38,6 @@ def pdf_to_excel(
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    wb = openpyxl.Workbook()
-    # Remove default sheet
-    wb.remove(wb.active)
 
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill(start_color="2B579A", end_color="2B579A", fill_type="solid")
@@ -54,6 +51,13 @@ def pdf_to_excel(
     total_tables_extracted = 0
 
     with pdfplumber.open(pdf_path) as pdf:
+        if not pdf.pages:
+            raise ValueError("Document contains no pages to export.")
+
+        wb = openpyxl.Workbook()
+        # Remove default sheet
+        wb.remove(wb.active)
+
         for page_idx, page in enumerate(pdf.pages):
             sheet_title = f"Page_{page_idx + 1}"
             ws = wb.create_sheet(title=sheet_title)
@@ -250,11 +254,14 @@ def pdf_to_powerpoint(
 
                 # 1. Render slide background
                 page = doc.get_page(idx)
-                orig_w, orig_h = page.get_size()
-                pil_img = page.render(scale=scale).to_pil()
+                try:
+                    orig_w, orig_h = page.get_size()
+                    pil_img = page.render(scale=scale).to_pil()
 
-                bg_img_path = os.path.join(temp_dir, f"slide_bg_{idx + 1}.png")
-                pil_img.save(bg_img_path, format="PNG")
+                    bg_img_path = os.path.join(temp_dir, f"slide_bg_{idx + 1}.png")
+                    pil_img.save(bg_img_path, format="PNG")
+                finally:
+                    page.close()
 
                 # Insert as full slide background
                 slide.shapes.add_picture(

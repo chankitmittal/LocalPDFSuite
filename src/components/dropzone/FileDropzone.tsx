@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
+import { formatSize } from '../../utils/formatters';
 import { Upload, File as FileIcon, X, Trash2, CheckCircle2 } from 'lucide-react';
 
 interface FileDropzoneProps {
@@ -53,14 +54,6 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
     e.preventDefault();
     setIsDragging(false);
     handleFiles(e.dataTransfer.files);
-  };
-
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
 
   return (

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import { ScanText, Download, CheckCircle, AlertCircle, Info } from 'lucide-react';
 
@@ -12,7 +12,7 @@ export const OcrPanel: React.FC = () => {
 
   const handleRunOcr = async () => {
     if (!selectedFile) {
-      alert('Please upload and select a PDF document first.');
+      showToast('Please upload and select a PDF document first.', 'warning');
       return;
     }
 

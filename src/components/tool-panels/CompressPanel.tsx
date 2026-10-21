@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
+import { formatSize } from '../../utils/formatters';
 import { Minimize2, Download, CheckCircle, AlertCircle, Sparkles, Zap, Shield } from 'lucide-react';
 
 export const CompressPanel: React.FC = () => {
@@ -10,7 +11,7 @@ export const CompressPanel: React.FC = () => {
 
   const handleCompress = async () => {
     if (!selectedFile) {
-      alert('Please upload and select a PDF file to compress.');
+      showToast('Please upload and select a PDF file to compress.', 'warning');
       return;
     }
 
@@ -19,14 +20,6 @@ export const CompressPanel: React.FC = () => {
       level,
       output_filename: `compressed_${selectedFile.name}`,
     });
-  };
-
-  const formatSize = (bytes: number) => {
-    if (!bytes) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
 
   return (

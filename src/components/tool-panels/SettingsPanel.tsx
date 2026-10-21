@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
-import { Settings, FolderCheck, ShieldCheck, RefreshCw, ExternalLink } from 'lucide-react';
+import { getBaseUrl } from '../../hooks/useSidecar';
+import { Settings, FolderCheck, ShieldCheck, RefreshCw, ExternalLink, CheckCircle } from 'lucide-react';
 
 interface LicenseItem {
   Name: string;
@@ -16,11 +17,12 @@ export const SettingsPanel: React.FC = () => {
   const [licenses, setLicenses] = useState<LicenseItem[]>([]);
   const [loadingLicenses, setLoadingLicenses] = useState(false);
   const [filterLicense, setFilterLicense] = useState('');
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   const fetchLicenses = async () => {
     setLoadingLicenses(true);
     try {
-      const res = await fetch('http://127.0.0.1:8765/api/licenses');
+      const res = await fetch(`${getBaseUrl()}/api/licenses`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
@@ -43,7 +45,8 @@ export const SettingsPanel: React.FC = () => {
       libreofficePath: sofficeInput,
       tesseractPath: tessInput,
     });
-    alert('Binary paths updated successfully!');
+    setSaveStatus('Settings saved to local storage.');
+    setTimeout(() => setSaveStatus(null), 3000);
   };
 
   const filtered = licenses.filter(
@@ -122,12 +125,20 @@ export const SettingsPanel: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={handleSavePaths}
-          className="py-2 px-4 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold transition-colors"
-        >
-          Save Custom Paths
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSavePaths}
+            className="py-2 px-4 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold transition-colors"
+          >
+            Save Custom Paths
+          </button>
+          {saveStatus && (
+            <span className="text-xs text-emerald-400 flex items-center gap-1.5 animate-fadeIn">
+              <CheckCircle className="w-3.5 h-3.5" />
+              {saveStatus}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Third Party Open Source Notices */}

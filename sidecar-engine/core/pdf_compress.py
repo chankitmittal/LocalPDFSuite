@@ -137,9 +137,14 @@ def compress_pdf(
                         xobj.write(compressed_bytes, filter=pikepdf.Name("/DCTDecode"))
                         if "/DecodeParms" in xobj:
                             del xobj["/DecodeParms"]
-                        pil_i = Image.open(io.BytesIO(compressed_bytes))
-                        xobj.Width = pil_i.size[0]
-                        xobj.Height = pil_i.size[1]
+                        # Remove soft masks / chroma masks if flattened to avoid double-masking corruption
+                        if "/SMask" in xobj:
+                            del xobj["/SMask"]
+                        if "/Mask" in xobj:
+                            del xobj["/Mask"]
+                        with Image.open(io.BytesIO(compressed_bytes)) as pil_i:
+                            xobj.Width = pil_i.size[0]
+                            xobj.Height = pil_i.size[1]
                         xobj.ColorSpace = pikepdf.Name("/DeviceRGB") if raw_img.mode != "L" else pikepdf.Name("/DeviceGray")
                         xobj.BitsPerComponent = 8
                 except Exception:

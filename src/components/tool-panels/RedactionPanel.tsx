@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import {
   EyeOff,
@@ -34,7 +34,7 @@ interface MarkedBox {
 
 export const RedactionPanel: React.FC = () => {
   const { selectedFile, currentJob } = useAppStore();
-  const { callApi, triggerDownload } = useSidecar();
+  const { callApi, triggerDownload, getBaseUrl } = useSidecar();
 
   // Mode & Page Navigation
   const [currentPage, setCurrentPage] = useState(1);
@@ -193,13 +193,13 @@ export const RedactionPanel: React.FC = () => {
   // 3. Search & Redact Backend Execution
   const handleSearchAndRedact = async (queryText?: string, pattern?: string) => {
     if (!selectedFile) {
-      alert('Please upload and select a PDF document first.');
+      showToast('Please upload and select a PDF document first.', 'warning');
       return;
     }
 
     const q = queryText !== undefined ? queryText : searchQuery;
     if (!pattern && (!q || !q.trim())) {
-      alert('Please enter a search term or select a pattern.');
+      showToast('Please enter a search term or select a pattern.', 'warning');
       return;
     }
 
@@ -207,7 +207,7 @@ export const RedactionPanel: React.FC = () => {
     setSearchFeedback(null);
 
     try {
-      const resp = await fetch('http://127.0.0.1:8765/api/overlays/search-redaction', {
+      const resp = await fetch(`${getBaseUrl()}/api/overlays/search-redaction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -277,12 +277,12 @@ export const RedactionPanel: React.FC = () => {
   // 4. Submit Final Irreversible Redaction to Backend
   const handleApplyRedaction = async () => {
     if (!selectedFile) {
-      alert('Please upload and select a PDF file first.');
+      showToast('Please upload and select a PDF file first.', 'warning');
       return;
     }
 
     if (redactionBoxes.length === 0) {
-      alert('Please mark at least one area to redact (by click-and-drag or search).');
+      showToast('Please mark at least one area to redact (by click-and-drag or search).', 'warning');
       return;
     }
 

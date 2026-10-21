@@ -13,6 +13,7 @@ import os
 import re
 import tempfile
 import secrets
+import logging
 from typing import Dict, Any, List, Optional
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, BooleanObject
@@ -21,6 +22,8 @@ from reportlab.lib.colors import HexColor
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 import pikepdf
+
+logger = logging.getLogger(__name__)
 
 
 def get_pdf_form_fields(pdf_path: str) -> Dict[str, Any]:
@@ -81,6 +84,64 @@ def get_pdf_form_fields(pdf_path: str) -> Dict[str, Any]:
     }
 
 
+def _create_form_appearance_xobject(
+    pdf: pikepdf.Pdf,
+    text: str,
+    width: float,
+    height: float,
+    font_size: float = 10.0,
+    field_type: str = "/Tx",
+    is_checked: bool = False,
+) -> pikepdf.Stream:
+    """
+    Builds an ISO 32000-1 compliant /AP/N Form XObject stream for interactive form fields.
+    Guarantees that Adobe Acrobat DC, Google Chrome, Edge, and macOS Preview immediately
+    render the filled text without requiring the user to click into the box.
+    """
+    width = max(10.0, float(width))
+    height = max(8.0, float(height))
+
+    if field_type == "/Btn":
+        # Checkbox appearance
+        mark = "4 4 12 12 re\nS\n" if not is_checked else "q\n2 2 12 12 re\nf\nQ\n"
+        stream_bytes = (
+            f"q\n0.2 0.2 0.2 RG\n1 w\n{mark}Q\n"
+        ).encode("latin1", errors="replace")
+        font_dict = pikepdf.Dictionary()
+    else:
+        # Text or Choice field appearance
+        escaped_text = str(text).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        y_baseline = max(2.0, (height - font_size) / 2.0)
+        stream_bytes = (
+            f"q\n"
+            f"0 0 {width:.2f} {height:.2f} re\n"
+            f"W\n"
+            f"n\n"
+            f"BT\n"
+            f"/Helv {font_size:.1f} Tf\n"
+            f"0 0 0 rg\n"
+            f"2 {y_baseline:.2f} Td\n"
+            f"({escaped_text}) Tj\n"
+            f"ET\n"
+            f"Q\n"
+        ).encode("latin1", errors="replace")
+        font_dict = pikepdf.Dictionary({
+            "/Helv": pikepdf.Dictionary({
+                "/Type": pikepdf.Name("/Font"),
+                "/Subtype": pikepdf.Name("/Type1"),
+                "/BaseFont": pikepdf.Name("/Helvetica"),
+            })
+        })
+
+    xobj = pikepdf.Stream(pdf, stream_bytes)
+    xobj.Type = pikepdf.Name("/XObject")
+    xobj.Subtype = pikepdf.Name("/Form")
+    xobj.BBox = pikepdf.Array([0, 0, width, height])
+    if font_dict:
+        xobj.Resources = pikepdf.Dictionary({"/Font": font_dict})
+    return xobj
+
+
 def fill_pdf_form(
     input_path: str,
     output_path: str,
@@ -88,6 +149,7 @@ def fill_pdf_form(
     text_annotations: Optional[List[Dict[str, Any]]] = None,
     flatten: bool = True,
     lock_permissions: bool = False,
+    permissions_password: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Fills interactive AcroForm fields and/or stamps custom on-page text annotations
@@ -186,15 +248,15 @@ def fill_pdf_form(
         for page in writer.pages:
             try:
                 writer.update_page_form_field_values(page, clean_field_values)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[LocalPDF] Exception during form field update on page: {e}")
 
         if "/AcroForm" in writer.root_object:
             try:
                 acro = writer.root_object["/AcroForm"].get_object()
                 acro[NameObject("/NeedAppearances")] = BooleanObject(True)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[LocalPDF] Could not set /NeedAppearances on AcroForm: {e}")
 
     # 2. Overlay custom on-page text annotations (for flat forms or click-to-type anywhere)
     if text_annotations and len(text_annotations) > 0:
@@ -247,14 +309,23 @@ def fill_pdf_form(
         with open(temp_filled_path, "wb") as f_out:
             writer.write(f_out)
 
+        effective_owner_pwd = None
+        if lock_permissions:
+            effective_owner_pwd = permissions_password.strip() if (permissions_password and permissions_password.strip()) else "LocalPDF_Unlock"
+
         if flatten:
             # Step A: Burn form fields and widget appearances into static page streams using PDFium
             doc = pdfium.PdfDocument(temp_filled_path)
-            for i in range(len(doc)):
-                page = doc[i]
-                pdfium_c.FPDFPage_Flatten(page.raw, 0)
-            doc.save(output_path)
-            doc.close()
+            try:
+                for i in range(len(doc)):
+                    page = doc.get_page(i)
+                    try:
+                        pdfium_c.FPDFPage_Flatten(page.raw, 0)
+                    finally:
+                        page.close()
+                doc.save(output_path)
+            finally:
+                doc.close()
 
             # Step B: Remove residual AcroForm catalog references & widget annotations via pikepdf
             with pikepdf.open(output_path, allow_overwriting_input=True) as p:
@@ -263,7 +334,6 @@ def fill_pdf_form(
 
                 for page in p.pages:
                     if "/Annots" in page:
-                        # Keep only non-widget annotations (like links) or delete if empty
                         remaining_annots = [
                             a for a in page.Annots if a.get("/Subtype") != "/Widget"
                         ]
@@ -273,7 +343,6 @@ def fill_pdf_form(
                             page.Annots = remaining_annots
 
                 if lock_permissions:
-                    # Enforce PDF standard permission restriction (Read-Only)
                     perms = pikepdf.Permissions(
                         modify_form=False,
                         modify_annotation=False,
@@ -285,7 +354,7 @@ def fill_pdf_form(
                     )
                     enc = pikepdf.Encryption(
                         user="",
-                        owner=secrets.token_hex(16),
+                        owner=effective_owner_pwd,
                         allow=perms,
                         R=6,
                         aes=True,
@@ -294,9 +363,66 @@ def fill_pdf_form(
                 else:
                     p.save(output_path)
         else:
-            # Unflattened: save standard interactive PDF
-            with open(temp_filled_path, "rb") as src_f, open(output_path, "wb") as dst_f:
-                dst_f.write(src_f.read())
+            # Unflattened interactive form: ensure every updated field has a valid, rendered /AP/N stream
+            with pikepdf.open(temp_filled_path, allow_overwriting_input=True) as p:
+                if field_values:
+                    for page in p.pages:
+                        if "/Annots" not in page:
+                            continue
+                        for a in page.Annots:
+                            if a.get("/Subtype") != "/Widget":
+                                continue
+                            t = a.get("/T")
+                            if not t and "/Parent" in a:
+                                t = a["/Parent"].get("/T")
+                            if not t:
+                                continue
+                            raw_t = str(t)
+                            if raw_t in clean_field_values:
+                                val_to_show = clean_field_values[raw_t]
+                                rect = a.get("/Rect")
+                                if rect:
+                                    x1, y1, x2, y2 = [float(c) for c in rect]
+                                    w = max(10.0, abs(x2 - x1))
+                                    h = max(8.0, abs(y2 - y1))
+                                    ft = a.get("/FT")
+                                    if not ft and "/Parent" in a:
+                                        ft = a["/Parent"].get("/FT")
+                                    ap_stream = _create_form_appearance_xobject(
+                                        p,
+                                        text=str(val_to_show),
+                                        width=w,
+                                        height=h,
+                                        font_size=10.0,
+                                        field_type=str(ft) if ft else "/Tx",
+                                        is_checked=str(val_to_show) not in ("/Off", "False", "false", ""),
+                                    )
+                                    a["/AP"] = pikepdf.Dictionary({"/N": p.make_indirect(ap_stream)})
+
+                if "/AcroForm" in p.Root:
+                    # Setting /NeedAppearances to False prevents Acrobat DC from suppressing visual display
+                    p.Root["/AcroForm"]["/NeedAppearances"] = False
+
+                if lock_permissions:
+                    perms = pikepdf.Permissions(
+                        modify_form=False,
+                        modify_annotation=False,
+                        modify_other=False,
+                        modify_assembly=False,
+                        extract=True,
+                        print_highres=True,
+                        print_lowres=True,
+                    )
+                    enc = pikepdf.Encryption(
+                        user="",
+                        owner=effective_owner_pwd,
+                        allow=perms,
+                        R=6,
+                        aes=True,
+                    )
+                    p.save(output_path, encryption=enc)
+                else:
+                    p.save(output_path)
 
     finally:
         if os.path.exists(temp_filled_path):
@@ -313,4 +439,5 @@ def fill_pdf_form(
         "annotations_added": len(text_annotations) if text_annotations else 0,
         "flattened": flatten,
         "permissions_locked": lock_permissions,
+        "permissions_password": effective_owner_pwd,
     }

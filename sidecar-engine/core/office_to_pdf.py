@@ -22,7 +22,10 @@ def find_libreoffice_binary(custom_path: Optional[str] = None) -> Optional[str]:
     4. Portable app folders inside app data
     """
     if custom_path and os.path.isfile(custom_path):
-        return custom_path
+        base = os.path.basename(custom_path).lower()
+        if base in ("soffice.exe", "soffice", "libreoffice"):
+            return custom_path
+        return None
 
     # Check PATH
     which_soffice = shutil.which("soffice") or shutil.which("soffice.exe") or shutil.which("libreoffice")

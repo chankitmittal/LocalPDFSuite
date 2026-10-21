@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import { FileText, FileSpreadsheet, Presentation, FileUp, Download, CheckCircle, AlertCircle } from 'lucide-react';
 
@@ -11,7 +11,7 @@ export const OfficeConvertPanel: React.FC = () => {
 
   const handleConvert = async () => {
     if (!selectedFile) {
-      alert('Please upload and select a document first.');
+      showToast('Please upload and select a document first.', 'warning');
       return;
     }
 

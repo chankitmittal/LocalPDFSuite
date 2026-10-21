@@ -145,34 +145,34 @@ def add_text_watermark(
         raise FileNotFoundError(f"File not found: {input_path}")
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    reader = PdfReader(input_path)
-    writer = PdfWriter()
-    total_pages = len(reader.pages)
+    with open(input_path, "rb") as in_f:
+        reader = PdfReader(in_f)
+        writer = PdfWriter()
+        total_pages = len(reader.pages)
 
-    selected = set(page_numbers) if page_numbers is not None else set(range(1, total_pages + 1))
+        selected = set(page_numbers) if page_numbers is not None else set(range(1, total_pages + 1))
 
-    for idx, page in enumerate(reader.pages):
-        page_num = idx + 1
-        if page_num in selected:
-            w = float(page.mediabox.width)
-            h = float(page.mediabox.height)
-            wm_buf = _create_text_watermark_page(
-                width=w,
-                height=h,
-                text=text,
-                font_size=font_size,
-                opacity=opacity,
-                rotation=rotation,
-                hex_color=hex_color,
-                tiled=tiled,
-            )
-            wm_reader = PdfReader(wm_buf)
-            page.merge_page(wm_reader.pages[0])
+        for idx, page in enumerate(reader.pages):
+            page_num = idx + 1
+            writer_page = writer.add_page(page)
+            if page_num in selected:
+                w = float(page.mediabox.width)
+                h = float(page.mediabox.height)
+                wm_buf = _create_text_watermark_page(
+                    width=w,
+                    height=h,
+                    text=text,
+                    font_size=font_size,
+                    opacity=opacity,
+                    rotation=rotation,
+                    hex_color=hex_color,
+                    tiled=tiled,
+                )
+                wm_reader = PdfReader(wm_buf)
+                writer_page.merge_page(wm_reader.pages[0])
 
-        writer.add_page(page)
-
-    with open(output_path, "wb") as f_out:
-        writer.write(f_out)
+        with open(output_path, "wb") as f_out:
+            writer.write(f_out)
 
     return {
         "status": "success",
@@ -197,31 +197,32 @@ def add_page_numbers(
         raise FileNotFoundError(f"File not found: {input_path}")
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    reader = PdfReader(input_path)
-    writer = PdfWriter()
-    total_pages = len(reader.pages)
+    with open(input_path, "rb") as in_f:
+        reader = PdfReader(in_f)
+        writer = PdfWriter()
+        total_pages = len(reader.pages)
 
-    for idx, page in enumerate(reader.pages):
-        page_num = idx + 1 + start_offset
-        w = float(page.mediabox.width)
-        h = float(page.mediabox.height)
+        for idx, page in enumerate(reader.pages):
+            page_num = idx + 1 + start_offset
+            w = float(page.mediabox.width)
+            h = float(page.mediabox.height)
 
-        pn_buf = _create_page_number_page(
-            width=w,
-            height=h,
-            current_page=page_num,
-            total_pages=total_pages + start_offset,
-            format_str=format_str,
-            position=position,
-            font_size=font_size,
-            hex_color=hex_color,
-        )
-        pn_reader = PdfReader(pn_buf)
-        page.merge_page(pn_reader.pages[0])
-        writer.add_page(page)
+            pn_buf = _create_page_number_page(
+                width=w,
+                height=h,
+                current_page=page_num,
+                total_pages=total_pages + start_offset,
+                format_str=format_str,
+                position=position,
+                font_size=font_size,
+                hex_color=hex_color,
+            )
+            pn_reader = PdfReader(pn_buf)
+            page.merge_page(pn_reader.pages[0])
+            writer.add_page(page)
 
-    with open(output_path, "wb") as f_out:
-        writer.write(f_out)
+        with open(output_path, "wb") as f_out:
+            writer.write(f_out)
 
     return {
         "status": "success",
@@ -269,61 +270,60 @@ def redact_pdf(
 
     # Open with pypdfium2 for raster rendering and pikepdf for final assembly
     doc = pdfium.PdfDocument(input_path)
-    total_pages = len(doc)
+    try:
+        total_pages = len(doc)
+        scale_factor = render_dpi / 72.0
 
-    scale_factor = render_dpi / 72.0
-    dst_pdf = pikepdf.Pdf.new()
+        with pikepdf.Pdf.new() as dst_pdf:
+            with pikepdf.open(input_path) as orig_pdf:
+                for idx in range(total_pages):
+                    p_num = idx + 1
+                    if p_num in page_redaction_map and page_redaction_map[p_num]:
+                        # Render page to high-res image
+                        page = doc.get_page(idx)
+                        try:
+                            orig_w_pt, orig_h_pt = page.get_size()
+                            pil_image = page.render(scale=scale_factor).to_pil()
 
-    with pikepdf.open(input_path) as orig_pdf:
-        for idx in range(total_pages):
-            p_num = idx + 1
-            if p_num in page_redaction_map and page_redaction_map[p_num]:
-                # Render page to high-res image
-                page = doc.get_page(idx)
-                orig_w_pt, orig_h_pt = page.get_size()
-                pil_image = page.render(scale=scale_factor).to_pil()
+                            # Parse fill color
+                            color_hex = fill_color.lstrip("#")
+                            color_rgb = tuple(int(color_hex[i : i + 2], 16) for i in (0, 2, 4))
+                            draw = ImageDraw.Draw(pil_image)
 
-                # Parse fill color
-                color_hex = fill_color.lstrip("#")
-                color_rgb = tuple(int(color_hex[i : i + 2], 16) for i in (0, 2, 4))
-                draw = ImageDraw.Draw(pil_image)
+                            # Draw rectangles over redacted areas
+                            # Note: In PDF coordinates, origin is bottom-left. In PIL, origin is top-left.
+                            img_w, img_h = pil_image.size
+                            for box in page_redaction_map[p_num]:
+                                bx = float(box["x"]) * scale_factor
+                                by_pdf = float(box["y"])
+                                bw = float(box["width"]) * scale_factor
+                                bh = float(box["height"]) * scale_factor
 
-                # Draw rectangles over redacted areas
-                # Note: In PDF coordinates, origin is bottom-left. In PIL, origin is top-left.
-                img_w, img_h = pil_image.size
-                for box in page_redaction_map[p_num]:
-                    bx = float(box["x"]) * scale_factor
-                    by_pdf = float(box["y"])
-                    bw = float(box["width"]) * scale_factor
-                    bh = float(box["height"]) * scale_factor
+                                pil_y0 = (orig_h_pt - (by_pdf + float(box["height"]))) * scale_factor
+                                pil_y1 = pil_y0 + bh
+                                pil_x0 = bx
+                                pil_x1 = bx + bw
 
-                    # Convert bottom-left y to PIL top-left y:
-                    # In PDF, box covers from by_pdf to by_pdf + bh.
-                    # Top in PDF is by_pdf + bh, which corresponds to img_h - (by_pdf + bh)*scale_factor in PIL.
-                    pil_y0 = (orig_h_pt - (by_pdf + float(box["height"]))) * scale_factor
-                    pil_y1 = pil_y0 + bh
-                    pil_x0 = bx
-                    pil_x1 = bx + bw
+                                draw.rectangle([pil_x0, pil_y0, pil_x1, pil_y1], fill=color_rgb)
 
-                    draw.rectangle([pil_x0, pil_y0, pil_x1, pil_y1], fill=color_rgb)
+                            # Save sanitized image directly to a 1-page PDF in memory
+                            sanitized_pdf_buf = io.BytesIO()
+                            if pil_image.mode != "RGB":
+                                pil_image = pil_image.convert("RGB")
+                            pil_image.save(sanitized_pdf_buf, format="PDF", resolution=float(render_dpi))
+                            sanitized_pdf_buf.seek(0)
 
-                # Save sanitized image directly to a 1-page PDF in memory
-                sanitized_pdf_buf = io.BytesIO()
-                if pil_image.mode != "RGB":
-                    pil_image = pil_image.convert("RGB")
-                pil_image.save(sanitized_pdf_buf, format="PDF", resolution=float(render_dpi))
-                sanitized_pdf_buf.seek(0)
+                            with pikepdf.open(sanitized_pdf_buf) as sanitized_pdf:
+                                dst_pdf.pages.append(sanitized_pdf.pages[0])
+                        finally:
+                            page.close()
+                    else:
+                        # Unredacted page: keep untouched
+                        dst_pdf.pages.append(orig_pdf.pages[idx])
 
-                with pikepdf.open(sanitized_pdf_buf) as sanitized_pdf:
-                    dst_pdf.pages.append(sanitized_pdf.pages[0])
-            else:
-                # Unredacted page: keep untouched
-                dst_pdf.pages.append(orig_pdf.pages[idx])
-
-        dst_pdf.save(output_path, compress_streams=True)
-        dst_pdf.close()
-
-    doc.close()
+                dst_pdf.save(output_path, compress_streams=True)
+    finally:
+        doc.close()
 
     return {
         "status": "success",

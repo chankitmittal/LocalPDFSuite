@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import { Stamp, Hash, Download, CheckCircle, AlertCircle, Eye, Sparkles } from 'lucide-react';
 
@@ -190,7 +190,7 @@ export const WatermarkPanel: React.FC = () => {
 
   const handleApplyWatermark = async () => {
     if (!selectedFile) {
-      alert('Please upload and select a PDF document first.');
+      showToast('Please upload and select a PDF document first.', 'warning');
       return;
     }
 

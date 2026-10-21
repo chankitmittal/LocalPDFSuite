@@ -17,7 +17,6 @@ from PIL import Image
 # pyHanko imports
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
 from pyhanko.sign import fields, signers
-from pyhanko.sign.general import load_cert_from_pemder
 from pyhanko.stamp import TextStampStyle
 from pyhanko_certvalidator import ValidationContext
 from cryptography import x509
@@ -47,41 +46,42 @@ def sign_pdf_visual(
         raise FileNotFoundError(f"Signature image not found: {signature_image_path}")
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    reader = PdfReader(input_path)
-    writer = PdfWriter()
-    total_pages = len(reader.pages)
+    with open(input_path, "rb") as in_f:
+        reader = PdfReader(in_f)
+        writer = PdfWriter()
+        total_pages = len(reader.pages)
 
-    if not (1 <= page_number <= total_pages):
-        raise ValueError(f"Page number {page_number} is out of bounds (1 to {total_pages})")
+        if not (1 <= page_number <= total_pages):
+            raise ValueError(f"Page number {page_number} is out of bounds (1 to {total_pages})")
 
-    target_page = reader.pages[page_number - 1]
-    pw = float(target_page.mediabox.width)
-    ph = float(target_page.mediabox.height)
+        target_page = reader.pages[page_number - 1]
+        pw = float(target_page.mediabox.width)
+        ph = float(target_page.mediabox.height)
 
-    # Create overlay PDF with signature image
-    stamp_buf = io.BytesIO()
-    c = canvas.Canvas(stamp_buf, pagesize=(pw, ph))
-    c.drawImage(
-        signature_image_path,
-        x=x,
-        y=y,
-        width=width,
-        height=height,
-        mask="auto",
-        preserveAspectRatio=True,
-    )
-    c.showPage()
-    c.save()
-    stamp_buf.seek(0)
+        # Create overlay PDF with signature image
+        stamp_buf = io.BytesIO()
+        c = canvas.Canvas(stamp_buf, pagesize=(pw, ph))
+        c.drawImage(
+            signature_image_path,
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            mask="auto",
+            preserveAspectRatio=True,
+        )
+        c.showPage()
+        c.save()
+        stamp_buf.seek(0)
 
-    stamp_reader = PdfReader(stamp_buf)
-    target_page.merge_page(stamp_reader.pages[0])
+        stamp_reader = PdfReader(stamp_buf)
+        target_page.merge_page(stamp_reader.pages[0])
 
-    for idx, page in enumerate(reader.pages):
-        writer.add_page(page)
+        for idx, page in enumerate(reader.pages):
+            writer.add_page(page)
 
-    with open(output_path, "wb") as f_out:
-        writer.write(f_out)
+        with open(output_path, "wb") as f_out:
+            writer.write(f_out)
 
     return {
         "status": "success",
@@ -185,16 +185,38 @@ def sign_pdf_cryptographic(
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
+    # Detect existing signature fields to prevent FieldAlreadyExistsError collisions
+    sig_field_name = "Signature1"
+    try:
+        with open(input_path, "rb") as check_f:
+            reader = PdfReader(check_f)
+            existing_fields = set()
+            root_fields = reader.get_fields()
+            if root_fields:
+                existing_fields = set(root_fields.keys())
+            idx = 1
+            while f"Signature{idx}" in existing_fields:
+                idx += 1
+            sig_field_name = f"Signature{idx}"
+    except Exception:
+        import uuid
+        sig_field_name = f"Signature_{uuid.uuid4().hex[:6]}"
+
     signer = signers.SimpleSigner.load_pkcs12(
         pfx_file=pfx_path,
         passphrase=passphrase.encode("utf-8") if passphrase else None,
     )
 
+    trust_roots = [signer.signing_cert]
+    if signer.cert_registry:
+        trust_roots.extend(signer.cert_registry)
+    offline_vc = ValidationContext(trust_roots=trust_roots, allow_fetching=False)
     meta = signers.PdfSignatureMetadata(
-        field_name="Signature1",
+        field_name=sig_field_name,
         reason=reason,
         location=location,
         contact_info=contact_info,
+        validation_context=offline_vc,
     )
 
     new_field_spec = None
@@ -206,7 +228,7 @@ def sign_pdf_cryptographic(
         sig_box = box if box else (350, 50, 570, 120)
         on_page = max(0, page_number - 1)
         new_field_spec = fields.SigFieldSpec(
-            sig_field_name="Signature1",
+            sig_field_name=sig_field_name,
             on_page=on_page,
             box=sig_box,
         )

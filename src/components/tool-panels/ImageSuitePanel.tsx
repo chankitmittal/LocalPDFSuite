@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAppStore } from '../../store/useAppStore';
+import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import { Image as ImageIcon, FileOutput, Sliders, Download, CheckCircle, AlertCircle } from 'lucide-react';
 
@@ -25,7 +25,7 @@ export const ImageSuitePanel: React.FC = () => {
   const handleAction = async () => {
     if (mode === 'pdf_to_images') {
       if (!selectedFile) {
-        alert('Please upload and select a PDF file.');
+        showToast('Please upload and select a PDF file.', 'warning');
         return;
       }
       await callApi('/api/images/pdf-to-images', {
@@ -35,7 +35,7 @@ export const ImageSuitePanel: React.FC = () => {
       });
     } else if (mode === 'images_to_pdf') {
       if (files.length === 0) {
-        alert('Please upload at least one image file.');
+        showToast('Please upload at least one image file.', 'warning');
         return;
       }
       const imagePaths = files.map((f) => f.path);
@@ -45,7 +45,7 @@ export const ImageSuitePanel: React.FC = () => {
       });
     } else if (mode === 'bulk_process') {
       if (files.length === 0) {
-        alert('Please upload image files to process.');
+        showToast('Please upload image files to process.', 'warning');
         return;
       }
       const imagePaths = files.map((f) => f.path);
@@ -266,13 +266,15 @@ export const ImageSuitePanel: React.FC = () => {
         <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
           <div className="flex items-center space-x-2 text-emerald-400 text-xs">
             <CheckCircle className="w-4 h-4" />
-            <span className="font-medium">{currentJob.message}</span>
+            <span className="font-medium">
+              {mode === 'bulk_process' ? 'Bulk image processing complete! Archive ready.' : currentJob.message}
+            </span>
           </div>
           <button
             onClick={() => triggerDownload(currentJob.downloadUrl!)}
             className="py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
           >
-            <Download className="w-3.5 h-3.5" /> Download Result
+            <Download className="w-3.5 h-3.5" /> Download Result {mode === 'bulk_process' && files.length > 1 ? '(ZIP)' : ''}
           </button>
         </div>
       )}
