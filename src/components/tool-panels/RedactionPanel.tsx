@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { useAppStore, showToast } from '../../store/useAppStore';
-import { useSidecar } from '../../hooks/useSidecar';
+import { useSidecar, callSidecarEndpoint } from '../../hooks/useSidecar';
 import {
   EyeOff,
   Search,
@@ -207,19 +207,14 @@ export const RedactionPanel: React.FC = () => {
     setSearchFeedback(null);
 
     try {
-      const resp = await fetch(`${getBaseUrl()}/api/overlays/search-redaction`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          file_path: selectedFile.path,
-          query: pattern ? undefined : q.trim(),
-          pattern_type: pattern || undefined,
-        }),
+      const data = await callSidecarEndpoint('/api/overlays/search-redaction', {
+        file_path: selectedFile.path,
+        query: pattern ? undefined : q.trim(),
+        pattern_type: pattern || undefined,
       });
 
-      const data = await resp.json();
-      if (!resp.ok || data.status === 'error') {
-        setSearchFeedback(`Search failed: ${data.detail || 'Could not find matches.'}`);
+      if (!data || data.status === 'error') {
+        setSearchFeedback(`Search failed: ${data?.detail || data?.error || 'Could not find matches.'}`);
         setSearching(false);
         return;
       }

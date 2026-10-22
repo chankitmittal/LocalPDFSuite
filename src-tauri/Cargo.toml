@@ -5,6 +5,10 @@ description = "100% Offline PDF and Image Suite"
 authors = ["Antigravity"]
 edition = "2021"
 
+[[bin]]
+name = "LocalPDFSuite"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import { readFileData } from '../../hooks/useSidecar';
 import {
   DndContext,
   closestCenter,
@@ -206,8 +207,7 @@ export const MergeInteractiveOrganizer: React.FC<MergeInteractiveOrganizerProps>
           if (file.fileObj) {
             arrayBuffer = await file.fileObj.arrayBuffer();
           } else {
-            const resp = await fetch(`/api/files/download?path=${encodeURIComponent(file.path)}`);
-            arrayBuffer = await resp.arrayBuffer();
+            arrayBuffer = await readFileData(file.path);
           }
 
           if (isCancelled) return;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { useAppStore, showToast } from '../../store/useAppStore';
-import { useSidecar } from '../../hooks/useSidecar';
+import { useSidecar, readFileData } from '../../hooks/useSidecar';
 import { PdfEditItem } from '../../types';
 import {
   Edit3,
@@ -188,8 +188,7 @@ export const EditPdfPanel: React.FC = () => {
         if (activePdf.fileObj) {
           arrayBuffer = await activePdf.fileObj.arrayBuffer();
         } else {
-          const resp = await fetch(`/api/files/download?path=${encodeURIComponent(activePdf.path)}`);
-          arrayBuffer = await resp.arrayBuffer();
+          arrayBuffer = await readFileData(activePdf.path);
         }
 
         if (isCancelled) return;

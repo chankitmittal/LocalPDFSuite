@@ -1,17 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
+
+spec_dir = os.path.dirname(os.path.abspath(SPEC)) if 'SPEC' in globals() else os.path.dirname(os.path.abspath(__file__))
 
 datas = []
 datas += collect_data_files('pypdfium2')
 datas += collect_data_files('pikepdf')
 datas += collect_data_files('pdfminer')
 
+notices_file = os.path.join(spec_dir, 'third_party_notices.json')
+if os.path.isfile(notices_file):
+    datas.append((notices_file, '.'))
+
 hiddenimports = []
-hiddenimports += collect_submodules('uvicorn')
-hiddenimports += collect_submodules('fastapi')
-hiddenimports += collect_submodules('pydantic')
 hiddenimports += collect_submodules('pikepdf')
 hiddenimports += collect_submodules('pypdf')
 hiddenimports += collect_submodules('pypdfium2')
@@ -24,8 +28,8 @@ hiddenimports += collect_submodules('pyhanko')
 hiddenimports += collect_submodules('PIL')
 
 a = Analysis(
-    ['main.py'],
-    pathex=['.'],
+    [os.path.join(spec_dir, 'ipc_worker.py')],
+    pathex=[spec_dir, '.'],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,

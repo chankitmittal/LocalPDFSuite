@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import { readFileData } from '../../hooks/useSidecar';
 import { UploadedFile } from '../../types';
 import { formatPageRanges, parseRangeStringToSet } from '../../utils/pageRanges';
 import {
@@ -52,8 +53,7 @@ export const SplitPageOrganizer: React.FC<SplitPageOrganizerProps> = ({
         if (file.fileObj) {
           arrayBuffer = await file.fileObj.arrayBuffer();
         } else {
-          const resp = await fetch(`/api/files/download?path=${encodeURIComponent(file.path)}`);
-          arrayBuffer = await resp.arrayBuffer();
+          arrayBuffer = await readFileData(file.path);
         }
 
         if (isCancelled) return;

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useAppStore } from '../../store/useAppStore';
-import { useSidecar } from '../../hooks/useSidecar';
+import { useSidecar, callSidecarEndpoint } from '../../hooks/useSidecar';
 import {
   CompareAnalysisResult,
   ComparePageSummary,
@@ -129,28 +129,21 @@ export const ComparePanel: React.FC = () => {
     setSelectedChangeId(null);
 
     try {
-      const resp = await fetch(`${getBaseUrl()}/api/compare/analyze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          doc_a_path: docA.path,
-          doc_b_path: docB.path,
-          quick_visual_check: true,
-        }),
+      const res = await callSidecarEndpoint<CompareAnalysisResult>('/api/compare/analyze', {
+        doc_a_path: docA.path,
+        doc_b_path: docB.path,
+        quick_visual_check: true,
       });
 
-      if (resp.ok) {
-        const res: CompareAnalysisResult = await resp.json();
-        if (res && res.status === 'success') {
-          setAnalysisResult(res);
-        }
+      if (res && res.status === 'success') {
+        setAnalysisResult(res);
       }
     } catch (err) {
       console.error('Error analyzing document comparison:', err);
     } finally {
       setAnalyzing(false);
     }
-  }, [docA, docB, getBaseUrl]);
+  }, [docA, docB]);
 
   // Auto-run analysis when documents change
   useEffect(() => {
@@ -167,17 +160,12 @@ export const ComparePanel: React.FC = () => {
     let isMounted = true;
     setLoadingPageRender(true);
 
-    fetch(`${getBaseUrl()}/api/compare/render-page`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        doc_a_path: docA.path,
-        doc_b_path: docB.path,
-        page_number: currentPage,
-        dpi: 140,
-      }),
+    callSidecarEndpoint<ComparePageRenderResult>('/api/compare/render-page', {
+      doc_a_path: docA.path,
+      doc_b_path: docB.path,
+      page_number: currentPage,
+      dpi: 140,
     })
-      .then((resp) => (resp.ok ? resp.json() : null))
       .then((res: ComparePageRenderResult | null) => {
         if (isMounted && res && res.status === 'success') {
           setPageRenders((prev) => {

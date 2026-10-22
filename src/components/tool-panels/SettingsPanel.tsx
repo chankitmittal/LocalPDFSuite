@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
-import { getBaseUrl } from '../../hooks/useSidecar';
+import { callSidecarEndpoint } from '../../hooks/useSidecar';
 import { Settings, FolderCheck, ShieldCheck, RefreshCw, ExternalLink, CheckCircle } from 'lucide-react';
 
 interface LicenseItem {
@@ -22,12 +22,9 @@ export const SettingsPanel: React.FC = () => {
   const fetchLicenses = async () => {
     setLoadingLicenses(true);
     try {
-      const res = await fetch(`${getBaseUrl()}/api/licenses`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setLicenses(data);
-        }
+      const data = await callSidecarEndpoint('/api/licenses');
+      if (Array.isArray(data)) {
+        setLicenses(data);
       }
     } catch (e) {
       console.warn('Failed to load license notices from sidecar:', e);

@@ -9,6 +9,7 @@ pub struct PluginStatus {
     pub version: Option<String>,
 }
 
+#[allow(dead_code)]
 pub fn get_app_plugins_dir() -> PathBuf {
     let mut dir = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
     dir.push("LocalPDF");

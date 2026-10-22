@@ -1,7 +1,6 @@
 # Approved Permissive & Weak-Copyleft Dependencies Only
 # STRICT COMPLIANCE: ZERO AGPL / GPL
-fastapi>=0.110.0
-uvicorn[standard]>=0.28.0
+# Core Desktop Stdio IPC Engine Dependencies (No Web Framework Overhead)
 pikepdf>=8.15.0
 pypdf>=4.1.0
 pypdfium2>=4.28.0
@@ -12,8 +11,12 @@ openpyxl>=3.1.2
 python-pptx>=0.6.23
 pyHanko>=0.25.0
 Pillow>=10.2.0
-python-multipart>=0.0.9
 pip-licenses>=4.3.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+
+# Optional Web Dev Fallback (Only required if running browser-only dev server without Tauri)
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+python-multipart>=0.0.9
 httpx>=0.27.0
