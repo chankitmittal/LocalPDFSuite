@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
 import { formatSize } from '../../utils/formatters';
-import { Minimize2, Download, CheckCircle, AlertCircle, Sparkles, Zap, Shield } from 'lucide-react';
+import { Minimize2, Download, CheckCircle, AlertCircle, Gauge, Zap, Shield } from 'lucide-react';
 
 export const CompressPanel: React.FC = () => {
   const { selectedFile, currentJob } = useAppStore();
@@ -27,10 +27,10 @@ export const CompressPanel: React.FC = () => {
       <div className="border-b border-slate-800 pb-4">
         <h2 className="text-base font-bold text-white flex items-center gap-2">
           <Minimize2 className="w-5 h-5 text-brand-400" />
-          Ghostscript-Free PDF Compression
+          PDF Compression &amp; Optimization
         </h2>
         <p className="text-xs text-slate-400 mt-1">
-          High-performance XObject downsampling and QPDF stream optimization. 100% offline.
+          High-performance XObject downsampling and QPDF stream optimization.
         </p>
       </div>
 
@@ -61,7 +61,7 @@ export const CompressPanel: React.FC = () => {
           }`}
         >
           <div className="flex items-center gap-2 text-brand-400 mb-1">
-            <Sparkles className="w-4 h-4" />
+            <Gauge className="w-4 h-4" />
             <span className="font-semibold text-xs text-slate-200">Recommended</span>
           </div>
           <div className="text-[11px] text-slate-400">144 DPI threshold</div>

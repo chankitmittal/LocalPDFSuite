@@ -14,7 +14,6 @@ import {
   Archive,
   CheckCircle2,
   ShieldCheck,
-  Sparkles,
   Info,
   Scale,
   Settings2,
@@ -147,13 +146,10 @@ export const BatesPanel: React.FC = () => {
           <Hash className="w-8 h-8" />
         </div>
         <h2 className="text-xl font-bold text-white mb-2">Bates Numbering & Legal Stamping</h2>
-        <p className="text-sm text-slate-400 mb-6 max-w-md mx-auto">
+        <p className="text-sm text-slate-400 max-w-md mx-auto">
           Please upload one or more PDF files to apply continuous litigation Bates stamping, exhibit labels,
           anti-collision margins, and automated e-Discovery CSV index generation.
         </p>
-        <div className="inline-flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3.5 py-1.5 rounded-full font-medium">
-          <ShieldCheck className="w-4 h-4" /> 100% Offline & Court-Compliant &bull; Zero External Network Transmission
-        </div>
       </div>
     );
   }

@@ -16,7 +16,7 @@ import {
   ListFilter,
   PenTool,
   RotateCcw,
-  Sparkles,
+  ScanText,
   Download,
   Trash2,
   ChevronLeft,
@@ -512,7 +512,7 @@ export const PrepareFormPanel: React.FC = () => {
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-3.5 h-3.5" />
+                  <ScanText className="w-3.5 h-3.5" />
                   Auto-Detect Fields
                 </>
               )}
@@ -522,7 +522,7 @@ export const PrepareFormPanel: React.FC = () => {
 
         {detectMessage && (
           <div className="p-3 rounded-xl bg-indigo-950/40 border border-indigo-800/60 text-indigo-300 text-xs flex items-center gap-2">
-            <Sparkles className="w-4 h-4 flex-shrink-0 text-indigo-400" />
+            <ScanText className="w-4 h-4 flex-shrink-0 text-indigo-400" />
             <span>{detectMessage}</span>
           </div>
         )}
@@ -902,7 +902,7 @@ export const PrepareFormPanel: React.FC = () => {
               </div>
 
               <p className="text-xs text-emerald-200/90 leading-relaxed">
-                Your fillable PDF is ready. Recipients in Adobe Reader, Chrome, or any viewer can now click, type, and submit.
+                Your fillable PDF is ready. Recipients in standard PDF readers, web browsers, or viewers can now click, type, and submit.
               </p>
 
               <button

@@ -10,7 +10,6 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   Scissors,
   CheckCircle2,
   Eye,

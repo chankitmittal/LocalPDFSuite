@@ -19,7 +19,6 @@ import {
   Paperclip,
   MessageSquare,
   Layers,
-  Sparkles,
   Info,
   Check,
 } from 'lucide-react';
@@ -194,7 +193,7 @@ export const SanitizePanel: React.FC = () => {
               Deep Metadata Sanitizer &amp; Privacy Purge
             </h2>
             <p className="text-xs text-slate-400 mt-1">
-              DoD/NSA 5200.01 compliant sanitization. Destroys hidden metadata, Adobe XMP packets, comments, JavaScript, and unreferenced revision streams.
+              DoD/NSA 5200.01 compliant sanitization. Destroys hidden metadata, XMP metadata packets, comments, JavaScript, and unreferenced revision streams.
             </p>
           </div>
 
@@ -276,7 +275,7 @@ export const SanitizePanel: React.FC = () => {
                   className="mt-0.5 accent-brand-500 rounded"
                 />
                 <div className="text-xs">
-                  <div className="font-semibold text-slate-200">Adobe XMP Metadata Packet</div>
+                  <div className="font-semibold text-slate-200">XMP Metadata Packet</div>
                   <div className="text-[11px] text-slate-400">Removes XML editing history, computer usernames, and document UUIDs.</div>
                 </div>
               </label>
@@ -431,7 +430,7 @@ export const SanitizePanel: React.FC = () => {
                     </div>
 
                     <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                      <div className="text-[10px] font-semibold text-slate-400 uppercase">Adobe XMP Stream</div>
+                      <div className="text-[10px] font-semibold text-slate-400 uppercase">XMP Stream</div>
                       <div className="text-xs font-bold text-slate-200 mt-1">
                         {inspection.has_xmp ? (
                           <span className="text-amber-400 font-semibold">{formatSize(inspection.xmp_size)}</span>

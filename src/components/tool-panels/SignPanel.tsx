@@ -15,7 +15,6 @@ import {
   Move,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   RefreshCw,
   FileSignature,
   Sliders,
@@ -638,7 +637,7 @@ export const SignPanel: React.FC = () => {
                               : 'bg-slate-700 border-slate-600 text-slate-300'
                           }`}
                         >
-                          <Sparkles className="w-2.5 h-2.5" />
+                          <Sliders className="w-2.5 h-2.5" />
                           {removeBg ? 'Auto-Transparent Ink: ON' : 'Original Background: ON'}
                         </button>
                       </div>

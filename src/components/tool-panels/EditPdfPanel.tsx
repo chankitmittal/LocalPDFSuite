@@ -22,7 +22,7 @@ import {
   Bold,
   Italic,
   Layers,
-  Sparkles,
+  Wrench,
   Plus,
   X,
   FileText,
@@ -1223,7 +1223,7 @@ export const EditPdfPanel: React.FC = () => {
           ) : (
             <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-800 text-xs text-slate-300 space-y-2">
               <span className="font-semibold text-brand-400 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4" /> Direct Editing Tools:
+                <Wrench className="w-4 h-4" /> Direct Editing Tools:
               </span>
               <ul className="text-slate-400 leading-relaxed text-[11px] space-y-1 list-disc list-inside">
                 <li>

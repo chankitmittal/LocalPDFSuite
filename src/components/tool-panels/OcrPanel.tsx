@@ -30,7 +30,7 @@ export const OcrPanel: React.FC = () => {
       <div className="border-b border-slate-800 pb-4">
         <h2 className="text-base font-bold text-white flex items-center gap-2">
           <ScanText className="w-5 h-5 text-brand-400" />
-          Offline OCR: Searchable PDF Generation
+          OCR: Searchable PDF Generation
         </h2>
         <p className="text-xs text-slate-400 mt-1">
           Renders scanned pages at 300 DPI, runs local Tesseract OCR (Apache-2.0), and builds an invisible searchable text sandwich layer.
@@ -87,7 +87,7 @@ export const OcrPanel: React.FC = () => {
         className="w-full py-3 px-4 rounded-xl font-semibold text-sm bg-brand-600 hover:bg-brand-500 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg shadow-brand-600/20 transition-all flex items-center justify-center gap-2"
       >
         <ScanText className="w-4 h-4" />
-        {currentJob.status === 'running' ? 'Running Offline OCR...' : 'Generate Searchable PDF'}
+        {currentJob.status === 'running' ? 'Running OCR Engine...' : 'Generate Searchable PDF'}
       </button>
 
       {/* Result feedback */}

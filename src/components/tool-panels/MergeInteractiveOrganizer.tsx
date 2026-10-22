@@ -28,7 +28,6 @@ import {
   Layers,
   LayoutGrid,
   List,
-  Sparkles,
 } from 'lucide-react';
 
 interface DocumentMeta {
@@ -398,7 +397,7 @@ export const MergeInteractiveOrganizer: React.FC<MergeInteractiveOrganizerProps>
       {files.length > 1 && (
         <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl text-xs text-slate-300 flex items-center flex-wrap gap-2">
           <span className="font-semibold text-brand-400 text-[11px] flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5" /> Resulting Merge Pipeline:
+            <Layers className="w-3.5 h-3.5" /> Resulting Merge Pipeline:
           </span>
           {files.map((f, i) => {
             const count = docMetaMap[f.id]?.pageCount;

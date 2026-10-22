@@ -67,7 +67,7 @@ export const ImageSuitePanel: React.FC = () => {
       <div className="border-b border-slate-800 pb-4">
         <h2 className="text-base font-bold text-white flex items-center gap-2">
           <ImageIcon className="w-5 h-5 text-brand-400" />
-          Image Processing Suite (iLoveIMG Offline)
+          Image Processing Suite
         </h2>
         <p className="text-xs text-slate-400 mt-1">
           High-resolution PDF rasterization, image-to-PDF compilation, bulk WebP/JPEG conversion, and EXIF sanitization.

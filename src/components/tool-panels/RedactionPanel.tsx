@@ -12,7 +12,7 @@ import {
   CheckCircle,
   AlertCircle,
   ShieldAlert,
-  Sparkles,
+  CheckCheck,
   MousePointer2,
   X,
 } from 'lucide-react';
@@ -414,7 +414,7 @@ export const RedactionPanel: React.FC = () => {
 
         {searchFeedback && (
           <div className="text-xs text-brand-400 bg-brand-500/10 border border-brand-500/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5" />
+            <CheckCheck className="w-3.5 h-3.5" />
             <span>{searchFeedback}</span>
           </div>
         )}

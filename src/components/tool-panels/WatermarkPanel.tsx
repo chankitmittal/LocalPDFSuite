@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { useAppStore, showToast } from '../../store/useAppStore';
 import { useSidecar } from '../../hooks/useSidecar';
-import { Stamp, Hash, Download, CheckCircle, AlertCircle, Eye, Sparkles } from 'lucide-react';
+import { Stamp, Hash, Download, CheckCircle, AlertCircle, Eye, CheckCheck } from 'lucide-react';
 
 export const WatermarkPanel: React.FC = () => {
   const { selectedFile, pages, currentJob } = useAppStore();
@@ -423,7 +423,7 @@ export const WatermarkPanel: React.FC = () => {
               <span>Live Page Preview</span>
             </div>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1 font-medium">
-              <Sparkles className="w-2.5 h-2.5" /> Instant Updates
+              <CheckCheck className="w-2.5 h-2.5" /> Instant Updates
             </span>
           </div>
 

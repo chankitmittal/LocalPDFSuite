@@ -15,7 +15,6 @@ import {
   Plus,
   Trash2,
   RefreshCw,
-  Sparkles,
   Sliders,
   Move,
   Layers,
@@ -666,7 +665,7 @@ export const FormFillPanel: React.FC = () => {
                   Flatten Form Fields & Text (Strip AcroForm)
                 </span>
                 <span className="text-[10px] text-slate-400 block mt-0.5">
-                  Bakes field values directly into static page content and strips all interactive form widgets, so Adobe Reader cannot alter them.
+                  Bakes field values directly into static page content and strips all interactive form widgets, preventing any PDF reader or viewer from altering them.
                 </span>
               </div>
             </label>
@@ -684,7 +683,7 @@ export const FormFillPanel: React.FC = () => {
                     Lock Document Permissions (Read-Only Security)
                   </span>
                   <span className="text-[10px] text-slate-400 block mt-0.5">
-                    Restricts document editing even in Adobe Acrobat Pro without requiring a password to open.
+                    Restricts document editing even in full PDF editors without requiring a password to open.
                   </span>
                 </div>
               </label>
@@ -929,7 +928,7 @@ export const FormFillPanel: React.FC = () => {
                   <div className="flex flex-col gap-1.5 text-[11px] text-slate-400">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                      <span><strong>Microsoft Excel (.xlsx):</strong> Formatted header, frozen panes, auto-fit widths, fill-rate stats sheet</span>
+                      <span><strong>Excel Workbook (.xlsx):</strong> Formatted header, frozen panes, auto-fit widths, fill-rate stats sheet</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-blue-400" />
@@ -992,9 +991,9 @@ export const FormFillPanel: React.FC = () => {
                       <p className="text-[10px] text-slate-500 mt-0.5">Text, Yes/No checks, &amp; dropdown choices</p>
                     </div>
                     <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/60">
-                      <div className="text-[10px] font-semibold text-slate-400 uppercase">100% Offline</div>
-                      <div className="text-xs font-bold text-slate-200 mt-1">Zero Cloud</div>
-                      <p className="text-[10px] text-slate-500 mt-0.5">Confidential data stays on your machine</p>
+                      <div className="text-[10px] font-semibold text-slate-400 uppercase">Local Execution</div>
+                      <div className="text-xs font-bold text-slate-200 mt-1">In-Memory Engine</div>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Fast local PDF form parsing and flattening</p>
                     </div>
                   </div>
                 </div>

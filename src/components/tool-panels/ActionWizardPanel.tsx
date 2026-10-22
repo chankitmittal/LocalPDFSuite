@@ -9,7 +9,7 @@ import {
 import { formatSize } from '../../utils/formatters';
 import {
   Workflow,
-  Sparkles,
+  CheckCheck,
   Play,
   Plus,
   Trash2,
@@ -347,7 +347,7 @@ export const ActionWizardPanel: React.FC = () => {
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs font-bold text-white truncate">{preset.name}</span>
-                    {isSelected && <Sparkles className="w-3.5 h-3.5 text-brand-400 flex-shrink-0" />}
+                    {isSelected && <CheckCheck className="w-3.5 h-3.5 text-brand-400 flex-shrink-0" />}
                   </div>
                   <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
                     {preset.description}
@@ -718,7 +718,7 @@ export const ActionWizardPanel: React.FC = () => {
                                   onChange={(e) => handleUpdateStepParam(idx, 'strip_xmp', e.target.checked)}
                                   className="accent-brand-500 rounded"
                                 />
-                                <span>Purge Adobe XMP Packet</span>
+                                <span>Purge XMP Metadata Packet</span>
                               </label>
                               <label className="flex items-center gap-2 cursor-pointer">
                                 <input

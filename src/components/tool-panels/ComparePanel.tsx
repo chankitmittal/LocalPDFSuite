@@ -402,13 +402,10 @@ export const ComparePanel: React.FC = () => {
           <GitCompare className="w-8 h-8" />
         </div>
         <h2 className="text-xl font-bold text-white mb-2">Compare Two PDF Documents</h2>
-        <p className="text-sm text-slate-400 mb-6 max-w-md mx-auto">
+        <p className="text-sm text-slate-400 max-w-md mx-auto">
           Please upload at least 2 PDF documents (e.g. an original contract and a revised draft) to compare them
           using word-level inline strike-throughs, synchronized side-by-side inspection, and interactive swipe sliders.
         </p>
-        <div className="inline-flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3.5 py-1.5 rounded-full font-medium">
-          <ShieldCheck className="w-4 h-4" /> 100% Offline & Private &bull; Zero External Data Transmission
-        </div>
       </div>
     );
   }
